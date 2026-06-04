@@ -1,0 +1,43 @@
+version: "3"
+
+vars:
+  APP_NAME: wsgw-e2e-app
+  HTTP2: "{{.HTTP2 | default \"false\"}}"
+
+tasks:
+  app:
+    desc: Build the Quarkus app (fast-jar). Requires Maven 3.9+.
+    cmds:
+      - mvn -pl app -am package -DskipTests
+
+  app:image:
+    desc: Placeholder for iteration 2 — container image build
+    cmds:
+      - echo "Iteration 2 will wire up Quarkus container-image extension here."
+
+  run:
+    desc: Run the app in Quarkus dev mode against a local wsgw. Requires Maven 3.9+.
+    cmds:
+      - |
+        password_base=crixcrax
+
+        pwcreds="["
+        for nummer in $(seq 1 30); do
+          if test $nummer -gt 1; then
+            pwcreds="${pwcreds},"
+          fi
+          pwcreds="${pwcreds}{\"username\":\"user${nummer}\",\"password\":\"${password_base}${nummer}\"}"
+        done
+        pwcreds="${pwcreds}]"
+
+        export E2EAPP_SERVER_PORT=45678
+        export E2EAPP_PASSWORD_CREDENTIALS="$pwcreds"
+        export E2EAPP_WSGW_HOST=localhost
+        export E2EAPP_WSGW_PORT=45679
+        export E2EAPP_HTTP2={{.HTTP2}}
+        mvn -pl app -am quarkus:dev
+
+  smoke-test:
+    desc: Placeholder for iteration 2 — round-trip smoke test
+    cmds:
+      - echo "Iteration 2 will add the smoke-test module."
