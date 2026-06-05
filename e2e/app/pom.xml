@@ -5,13 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>io.github.pdkovacs.wsgw</groupId>
-        <artifactId>wsgw-e2eapp-parent</artifactId>
+        <groupId>io.github.pdkovacs</groupId>
+        <artifactId>wsgw-e2e</artifactId>
         <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>wsgw-e2eapp-app</artifactId>
-    <name>wsgw-e2eapp :: app</name>
+    <artifactId>wsgw-e2e-app</artifactId>
+    <name>wsgw :: e2e :: app</name>
 
     <dependencies>
         <dependency>
@@ -90,6 +90,12 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- Activate failsafe so *IT (@QuarkusIntegrationTest) classes run;
+                 version, env vars and execution bindings come from the wsgw-e2e parent. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
             </plugin>
         </plugins>
     </build>

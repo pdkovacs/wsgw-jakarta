@@ -4,54 +4,34 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.github.pdkovacs.wsgw</groupId>
-    <artifactId>wsgw-e2eapp-parent</artifactId>
+    <groupId>io.github.pdkovacs</groupId>
+    <artifactId>wsgw-parent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>wsgw-e2eapp :: parent</name>
-    <description>Java/Quarkus reference backend for wsgw.</description>
+    <name>wsgw :: root</name>
+    <description>WebSocket gateway and its end-to-end test harness.</description>
 
     <modules>
         <module>wsgw</module>
-        <module>e2e-app</module>
+        <module>e2e</module>
     </modules>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
 
-        <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
-        <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
-        <quarkus.platform.version>3.35.4</quarkus.platform.version>
-
         <compiler-plugin.version>3.15.0</compiler-plugin.version>
         <war-plugin.version>3.5.1</war-plugin.version>
         <resources-plugin.version>3.3.1</resources-plugin.version>
         <git-commit-id-plugin.version>9.0.1</git-commit-id-plugin.version>
         <surefire-plugin.version>3.5.5</surefire-plugin.version>
+        <failsafe-plugin.version>3.5.5</failsafe-plugin.version>
     </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>${quarkus.platform.group-id}</groupId>
-                <artifactId>${quarkus.platform.artifact-id}</artifactId>
-                <version>${quarkus.platform.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
 
     <build>
         <pluginManagement>
             <plugins>
-                <plugin>
-                    <groupId>io.quarkus.platform</groupId>
-                    <artifactId>quarkus-maven-plugin</artifactId>
-                    <version>${quarkus.platform.version}</version>
-                </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
