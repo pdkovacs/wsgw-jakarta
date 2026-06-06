@@ -29,9 +29,6 @@ import static org.hamcrest.Matchers.notNullValue;
  * </ol>
  */
 @QuarkusTest
-@Disabled("Documents a known BasicAuthFilter bug: '/app-info' public exemption "
-        + "is broken by a double-slash in the path check (//app-info). Remove this "
-        + "annotation once BasicAuthFilter is fixed; the test then becomes the guard.")
 class AppInfoResourcePublicPathTest {
 
     @Test
@@ -40,7 +37,7 @@ class AppInfoResourcePublicPathTest {
                 .when().get("/app-info")
                 .then()
                 .statusCode(200)
-                .body("application", is("e2e-app"))
+                .body("application", is("wsgw::e2e::app"))
                 .body("version", notNullValue());
     }
 }

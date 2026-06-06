@@ -34,7 +34,7 @@ public class BasicAuthFilter implements ContainerRequestFilter {
 
     @Override
     public void filter(ContainerRequestContext ctx) {
-        String path = "/" + ctx.getUriInfo().getPath();
+        String path = ctx.getUriInfo().getPath();
         if (PUBLIC_PATHS.contains(path)) {
             return;
         }
