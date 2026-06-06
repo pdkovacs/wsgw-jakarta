@@ -6,11 +6,14 @@ import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
+import jakarta.ws.rs.container.ResourceInfo;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
 import org.jboss.logging.Logger;
 
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Set;
@@ -21,8 +24,8 @@ public class BasicAuthFilter implements ContainerRequestFilter {
 
     private static final Logger log = Logger.getLogger(BasicAuthFilter.class);
 
-    // Public endpoints — mirrors the Node ref's pre-protected /app-info route.
-    private static final Set<String> PUBLIC_PATHS = Set.of("/app-info");
+    @Context
+    private ResourceInfo resourceInfo;
 
     private final AppConfig appConfig;
     private final RequestUser requestUser;
@@ -34,8 +37,9 @@ public class BasicAuthFilter implements ContainerRequestFilter {
 
     @Override
     public void filter(ContainerRequestContext ctx) {
-        String path = ctx.getUriInfo().getPath();
-        if (PUBLIC_PATHS.contains(path)) {
+        var isPublic = isPublic();
+        log.debugf("isPublic: %b", isPublic);
+        if (isPublic) {
             return;
         }
 
@@ -56,6 +60,13 @@ public class BasicAuthFilter implements ContainerRequestFilter {
         }
 
         requestUser.setUserId(credentials.username());
+    }
+
+    private boolean isPublic() {
+        Method method = resourceInfo.getResourceMethod();
+        Class<?> klass = resourceInfo.getResourceClass();
+        return (method != null && method.isAnnotationPresent(Public.class))
+                || (klass != null && klass.isAnnotationPresent(Public.class));
     }
 
     private static PasswordCredentials parseBasic(String header) {

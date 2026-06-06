@@ -46,6 +46,7 @@ public class AppInfoResource {
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
+    @Public
     public Response getAppInfo() {
         return Response.ok(appInfo).build();
     }
