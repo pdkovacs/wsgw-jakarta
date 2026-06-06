@@ -15,8 +15,8 @@ import org.jboss.logging.Logger;
 
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
-import java.util.Set;
 
 @Provider
 @Priority(Priorities.AUTHENTICATION)
@@ -50,9 +50,13 @@ public class BasicAuthFilter implements ContainerRequestFilter {
             return;
         }
 
+        // Password comparison uses MessageDigest.isEqual (data-independent timing).
+        // The surrounding loop is NOT constant-time across users (short-circuits via
+        // anyMatch, gates password check behind username equality) — acceptable for a
+        // reference app whose threat model excludes remote timing analysis.
         boolean match = appConfig.passwordCredentialsList().stream()
                 .anyMatch(c -> c.username().equals(credentials.username())
-                        && c.password().equals(credentials.password()));
+                        && constantTimeEquals(c.password(), credentials.password()));
 
         if (!match) {
             unauthorized(ctx);
@@ -67,6 +71,12 @@ public class BasicAuthFilter implements ContainerRequestFilter {
         Class<?> klass = resourceInfo.getResourceClass();
         return (method != null && method.isAnnotationPresent(Public.class))
                 || (klass != null && klass.isAnnotationPresent(Public.class));
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        return MessageDigest.isEqual(
+                a.getBytes(StandardCharsets.UTF_8),
+                b.getBytes(StandardCharsets.UTF_8));
     }
 
     private static PasswordCredentials parseBasic(String header) {
@@ -90,7 +100,7 @@ public class BasicAuthFilter implements ContainerRequestFilter {
 
     private static void unauthorized(ContainerRequestContext ctx) {
         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
-                .header(HttpHeaders.WWW_AUTHENTICATE, "Basic")
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"wsgw\"")
                 .build());
     }
 }
