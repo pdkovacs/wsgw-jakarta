@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.http.HttpClient;
+import java.nio.file.Path;
 import java.time.Duration;
 
 public class Wsgw {
@@ -36,14 +37,21 @@ public class Wsgw {
 
         Context ctx = tomcat.addContext("", null);
 
+        // A bare addContext() has no servlet, so requests 404 before any filter
+        // (including Tomcat's WsFilter) runs. Anchor the chain with a default servlet.
+        Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
+        ctx.addServletMappingDecoded("/", "default");
+
         appClient = createHttpClient();
 
         // register the filter on /ws
         FilterDef fd = new FilterDef();
-        fd.setFilterName("wsgwAuth"); fd.setFilter(new WsgwAuthFilter(appBaseUrl, appClient));
+        fd.setFilterName("wsgwAuth");
+        fd.setFilter(new WsgwAuthFilter(appBaseUrl, appClient));
         ctx.addFilterDef(fd);
         FilterMap fm = new FilterMap();
-        fm.setFilterName("wsgwAuth"); fm.addURLPattern("/ws");
+        fm.setFilterName("wsgwAuth");
+        fm.addURLPattern("/*");
         ctx.addFilterMap(fm);
 
         // turn on WS support + register the endpoint before the context finishes starting
@@ -71,7 +79,7 @@ public class Wsgw {
     }
 
 
-    static HttpClient createHttpClient() {
+    public static HttpClient createHttpClient() {
         return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .followRedirects(HttpClient.Redirect.NORMAL)

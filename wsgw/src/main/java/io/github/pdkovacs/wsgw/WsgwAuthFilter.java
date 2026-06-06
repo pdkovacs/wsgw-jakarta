@@ -33,23 +33,29 @@ public class WsgwAuthFilter extends HttpFilter {
 
     private static final Logger log = LoggerFactory.getLogger(WsgwAuthFilter.class);
 
-    public WsgwAuthFilter(String appBaseUrl, HttpClient appClient) {
-        this.appBaseUrl = appBaseUrl;
-        this.appClient = appClient;
-    }
-
-    private static boolean isRestricted(String headerName) {
-        return RESTRICTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
-    }
-
     static final String CONN_ID_HEADER = "X-WSGW-CONNECTION-ID";
 
     private final String appBaseUrl;
     private final HttpClient appClient;   // same java.net.http client as the Jetty version
 
+    public WsgwAuthFilter(String appBaseUrl, HttpClient appClient) {
+        this.appBaseUrl = appBaseUrl;
+        this.appClient = appClient;
+    }
+
     @Override
     protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException, ServletException {
+
+        var path = req.getServletPath();
+
+        log.debug("doFilter: path = {}", path);
+
+        if (!path.equals("/ws")) {
+            log.debug("HttpHandler minding its own business...");
+            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
 
         var connectionId = UUID.randomUUID().toString();
         int appStatus;
@@ -60,12 +66,12 @@ public class WsgwAuthFilter extends HttpFilter {
             return;
         }
 
-        if (appStatus != 204) {
-            if (appStatus == 401) {
+        if (appStatus != HttpServletResponse.SC_NO_CONTENT) {
+            if (appStatus == HttpServletResponse.SC_UNAUTHORIZED ) {
                 res.setHeader("WWW-Authenticate", "Basic realm=\"wsgw\"");  // same RFC-7235 dance
-                res.sendError(401);
+                res.sendError(HttpServletResponse.SC_UNAUTHORIZED);
             } else {
-                res.sendError(502);
+                res.sendError(HttpServletResponse.SC_BAD_GATEWAY);
             }
             return;   // client never sees a WS handshake — parity with Go wsgw
         }
@@ -73,6 +79,10 @@ public class WsgwAuthFilter extends HttpFilter {
         // Accepted: hand the id to the endpoint by injecting a header the
         // Configurator can read during the handshake, then let the upgrade proceed.
         chain.doFilter(new ConnIdRequestWrapper(req, connectionId), res);
+    }
+
+    private static boolean isRestricted(String headerName) {
+        return RESTRICTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
     }
 
     // Relays the client's connection request to the backend's /connect endpoint

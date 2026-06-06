@@ -14,8 +14,9 @@ public class WsgwEndpoint extends Endpoint {
     @Override
     public void onOpen(Session session, EndpointConfig config) {
         var connectionId = (String) session.getUserProperties().get("connectionId");
-        session.addMessageHandler(String.class, msg ->
-                log.debug("WS connection {} text: {}", connectionId, msg));
+        session.addMessageHandler(String.class, msg -> {
+            log.debug("WS connection {} text: {}", connectionId, msg);
+        });
         log.debug("WS connection {} opened", connectionId);
     }
 
