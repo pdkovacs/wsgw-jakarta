@@ -1,0 +1,20 @@
+package io.github.pdkovacs.wsgw;
+
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
+import jakarta.websocket.DeploymentException;
+import jakarta.websocket.server.ServerContainer;
+import jakarta.websocket.server.ServerEndpointConfig;
+
+public class WsgwWsListener implements ServletContextListener {
+    @Override
+    public void contextInitialized(ServletContextEvent e) {
+        var sc = (ServerContainer) e.getServletContext()
+                .getAttribute("jakarta.websocket.server.ServerContainer");  // set by WsSci
+        try {
+            sc.addEndpoint(ServerEndpointConfig.Builder.create(WsgwEndpoint.class, "/ws")
+                    .configurator(new ConnIdConfigurator())
+                    .build());
+        } catch (DeploymentException ex) { throw new RuntimeException(ex); }
+    }
+}
