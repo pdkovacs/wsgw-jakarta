@@ -13,30 +13,31 @@ import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.websocket.server.WsSci;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Path;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
-
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 public class AppTest {
 
     private static final Logger log = LoggerFactory.getLogger(AppTest.class);
 
-    private URI wsgwBaseUrl;
-    private Wsgw wsgw;
+    @TempDir
+    private Path tomcatBaseDir;
 
-    private Tomcat appMock;
+    private URI wsgwBaseUrl;
 
     private final HttpClient httpClient = Wsgw.createHttpClient();
     private final List<WebsocketTestClient> wsTestClients = new ArrayList<>();
@@ -79,7 +80,8 @@ public class AppTest {
 
     private void startMockApp(String[] expectedApiKey) {
         try {
-            appMock = new Tomcat();
+            Tomcat appMock = new Tomcat();
+            appMock.setBaseDir(tomcatBaseDir.resolve("appMock").toAbsolutePath().toString());
             appMock.setPort(0);
             appMock.getConnector().setProperty("useVirtualThreads", "true");  // ← keeps the VT-blocking model
 
@@ -105,11 +107,11 @@ public class AppTest {
             appMock.start();
             var appPort = appMock.getConnector().getLocalPort();
 
-            log.debug("appMock started at port: {}", (Integer) appPort);
-            String appMockUrl = "http://localhost:%d".formatted((Integer) appPort);
+            log.debug("appMock started at port: {}", appPort);
+            String appMockUrl = "http://localhost:%d".formatted(appPort);
 
-            wsgw = new Wsgw(appMockUrl);
-            wsgwBaseUrl = URI.create("ws://localhost:%d".formatted((Integer) wsgw.start()));
+            Wsgw wsgw = new Wsgw(appMockUrl, tomcatBaseDir.resolve("wsgw"));
+            wsgwBaseUrl = URI.create("ws://localhost:%d".formatted(wsgw.start()));
         } catch (Exception e) {
             log.error("Failed to startAppMock", e);
             throw new RuntimeException(e);
@@ -127,7 +129,7 @@ public class AppTest {
         try (var wsTestClient1 = createConnectWebsocketClient(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client1"))) {
             try (var wsTestClient2 = createConnectWebsocketClient(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client2"))) {
                 HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(String.format("http://%s:%d", wsgwBaseUrl.getHost(), (Integer) wsgwBaseUrl.getPort()).concat("/some-unrelated-rest-endpoint")))
+                        .uri(URI.create(String.format("http://%s:%d", wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort()).concat("/some-unrelated-rest-endpoint")))
                         .build();
                 HttpResponse<String> response;
                 try {

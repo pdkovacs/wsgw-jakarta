@@ -19,6 +19,10 @@ public class Wsgw {
     public static final String X_WSGW_CONNECTION_ID = "X-WSGW-CONNECTION-ID";
 
     private final String appBaseUrl;
+    // Where Tomcat keeps its scratch/work area. Without this, embedded Tomcat
+    // defaults to a "tomcat.<port>" directory under the process working dir,
+    // littering the source tree.
+    private final Path baseDir;
     private Tomcat tomcat;
     // One shared client for the whole gateway: its selector, thread pool and
     // (keep-alive) connection pool are reused across every WS connection, instead
@@ -26,12 +30,20 @@ public class Wsgw {
     private HttpClient appClient;
 
     public Wsgw(String appBaseUrl) {
-        logger.debug("appBaseUrl: {}", appBaseUrl);
+        // Production default: the JVM temp dir is always present and writable,
+        // and there is no Maven "target/" to rely on outside the build.
+        this(appBaseUrl, Path.of(System.getProperty("java.io.tmpdir"), "wsgw-tomcat"));
+    }
+
+    public Wsgw(String appBaseUrl, Path baseDir) {
+        logger.debug("appBaseUrl: {}, baseDir: {}", appBaseUrl, baseDir);
         this.appBaseUrl = appBaseUrl;
+        this.baseDir = baseDir;
     }
 
     public int start() throws Exception {
         tomcat = new Tomcat();
+        tomcat.setBaseDir(baseDir.toAbsolutePath().toString());
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("useVirtualThreads", "true");  // ← keeps the VT-blocking model
 
