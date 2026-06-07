@@ -10,6 +10,7 @@ public class ConnIdConfigurator extends ServerEndpointConfig.Configurator {
     @Override
     public void modifyHandshake(ServerEndpointConfig sec, HandshakeRequest req, HandshakeResponse res) {
         var id = req.getHeaders().getOrDefault(WsgwAuthFilter.CONN_ID_HEADER, List.of("?")).get(0);
-        sec.getUserProperties().put("connectionId", id);  // copied into Session.getUserProperties()
+        sec.getUserProperties().put("connectionId", id);            // still available in onOpen for logging
+        res.getHeaders().put(WsgwAuthFilter.CONN_ID_HEADER, List.of(id));  // echo on the 101 response
     }
 }

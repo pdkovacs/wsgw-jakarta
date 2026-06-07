@@ -157,22 +157,29 @@ public class AppTest {
         WebSocketContainer container = ContainerProvider.getWebSocketContainer();   // ← Tomcat's client impl
         TestClientEndpoint testClientEndpoint = new TestClientEndpoint();
         // To exercise the auth path in tests, attach handshake headers with a client Configurator:
+        var futureConnectionId = new CompletableFuture<String>();
         var cfg = ClientEndpointConfig.Builder.create()
                 .configurator(new ClientEndpointConfig.Configurator() {
                     @Override
                     public void beforeRequest(Map<String, List<String>> headers) {
                         headers.put(apiKey[0], List.of(apiKey[1]));   // app checks header[name]==value
                     }
+
+                    @Override
+                    public void afterResponse(HandshakeResponse hr) {
+                        var connectionId = hr.getHeaders().get("X-WSGW-CONNECTION-ID").getFirst();
+                        futureConnectionId.complete(connectionId);
+                    }
                 }).build();
         Session session = container.connectToServer(testClientEndpoint, cfg, wsgwWebscoketServerURI);
         // connectToServer returns only after onOpen has run, so the session is ready here — no latch needed.
-        var wsTestClient = new WebsocketTestClient(testClientEndpoint, testClientEndpoint.session);
+        var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get());
         wsTestClients.add(wsTestClient);
         return wsTestClient;
     }
 }
 
-record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession) implements AutoCloseable {
+record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession, String connectionId) implements AutoCloseable {
     public void close() throws Exception {
         // `close` defaults to new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "no reason")
         websocketClientSession.close();
