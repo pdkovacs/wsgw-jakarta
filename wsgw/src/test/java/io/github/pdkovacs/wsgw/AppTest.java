@@ -30,6 +30,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class AppTest {
 
     private static final Logger log = LoggerFactory.getLogger(AppTest.class);
@@ -38,6 +40,8 @@ public class AppTest {
     private Path tomcatBaseDir;
 
     private URI wsgwBaseUrl;
+
+    private final ConnectionIdGeneratorMock connectionIdGeneratorMock =  new ConnectionIdGeneratorMock();
 
     private final HttpClient httpClient = Wsgw.createHttpClient();
     private final List<WebsocketTestClient> wsTestClients = new ArrayList<>();
@@ -110,7 +114,7 @@ public class AppTest {
             log.debug("appMock started at port: {}", appPort);
             String appMockUrl = "http://localhost:%d".formatted(appPort);
 
-            Wsgw wsgw = new Wsgw(appMockUrl, tomcatBaseDir.resolve("wsgw"));
+            Wsgw wsgw = new Wsgw(appMockUrl, tomcatBaseDir.resolve("wsgw"), this.connectionIdGeneratorMock);
             wsgwBaseUrl = URI.create("ws://localhost:%d".formatted(wsgw.start()));
         } catch (Exception e) {
             log.error("Failed to startAppMock", e);
@@ -126,8 +130,12 @@ public class AppTest {
         Function<String, Consumer<String>> messageHandler = clientId -> message -> log.debug("[{}] message received: {}", clientId, message);
 
         URI wsgwWebscoketServerURI = URI.create(wsgwBaseUrl.toString().concat("/ws"));
+        String connId1 = this.connectionIdGeneratorMock.roll();
         try (var wsTestClient1 = createConnectWebsocketClient(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client1"))) {
+            assertThat(wsTestClient1.connectionId()).isEqualTo(connId1);
+            String connId2 = this.connectionIdGeneratorMock.roll();
             try (var wsTestClient2 = createConnectWebsocketClient(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client2"))) {
+                assertThat(wsTestClient2.connectionId()).isEqualTo(connId2);
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(String.format("http://%s:%d", wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort()).concat("/some-unrelated-rest-endpoint")))
                         .build();
@@ -138,13 +146,12 @@ public class AppTest {
                     log.error("Failed to connect to app ({})", wsgwBaseUrl, e);
                     throw new RuntimeException(e);
                 }
-                Assertions.assertThat(response.statusCode()).as("OK status code from rest endpoint").isEqualTo(HttpServletResponse.SC_NOT_FOUND);
+                assertThat(response.statusCode()).as("404 from unmapped rest endpoint").isEqualTo(HttpServletResponse.SC_NOT_FOUND);
 
                 try (Session session1 = wsTestClient1.websocketClientSession()) {
                     try (Session session2 = wsTestClient2.websocketClientSession()) {
                         session2.getBasicRemote().sendText("Hello from 2");
                         session1.getBasicRemote().sendText("Hello from 1");
-
                     }
                 }
             }

@@ -37,10 +37,12 @@ public class WsgwAuthFilter extends HttpFilter {
 
     private final String appBaseUrl;
     private final HttpClient appClient;   // same java.net.http client as the Jetty version
+    private final ConnectionIdProvider connectionIdProvider;
 
-    public WsgwAuthFilter(String appBaseUrl, HttpClient appClient) {
+    public WsgwAuthFilter(String appBaseUrl, HttpClient appClient, ConnectionIdProvider connectionIdProvider) {
         this.appBaseUrl = appBaseUrl;
         this.appClient = appClient;
+        this.connectionIdProvider = connectionIdProvider;
     }
 
     @Override
@@ -57,7 +59,7 @@ public class WsgwAuthFilter extends HttpFilter {
             return;
         }
 
-        var connectionId = UUID.randomUUID().toString();
+        var connectionId = this.connectionIdProvider.generateId();
         int appStatus;
         try {
             appStatus = registerWithApp(req, connectionId);   // blocking; cheap on a virtual thread
@@ -107,7 +109,6 @@ public class WsgwAuthFilter extends HttpFilter {
         log.debug("Registering with app {}: status {}", appBaseUrl, (Integer) response.statusCode());
         return response.statusCode();
     }
-
 }
 
 class ConnIdRequestWrapper extends HttpServletRequestWrapper {

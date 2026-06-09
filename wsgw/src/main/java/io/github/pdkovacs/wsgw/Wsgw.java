@@ -23,6 +23,8 @@ public class Wsgw {
     // defaults to a "tomcat.<port>" directory under the process working dir,
     // littering the source tree.
     private final Path baseDir;
+    private final ConnectionIdProvider connectionIdProvider;
+
     private Tomcat tomcat;
     // One shared client for the whole gateway: its selector, thread pool and
     // (keep-alive) connection pool are reused across every WS connection, instead
@@ -32,13 +34,14 @@ public class Wsgw {
     public Wsgw(String appBaseUrl) {
         // Production default: the JVM temp dir is always present and writable,
         // and there is no Maven "target/" to rely on outside the build.
-        this(appBaseUrl, Path.of(System.getProperty("java.io.tmpdir"), "wsgw-tomcat"));
+        this(appBaseUrl, Path.of(System.getProperty("java.io.tmpdir"), "wsgw-tomcat"), ConnectionIdProvider.DEFAULT);
     }
 
-    public Wsgw(String appBaseUrl, Path baseDir) {
+    public Wsgw(String appBaseUrl, Path baseDir, ConnectionIdProvider connectionIdProvider) {
         logger.debug("appBaseUrl: {}, baseDir: {}", appBaseUrl, baseDir);
         this.appBaseUrl = appBaseUrl;
         this.baseDir = baseDir;
+        this.connectionIdProvider = connectionIdProvider;
     }
 
     public int start() throws Exception {
@@ -59,7 +62,7 @@ public class Wsgw {
         // register the filter on /ws
         FilterDef fd = new FilterDef();
         fd.setFilterName("wsgwAuth");
-        fd.setFilter(new WsgwAuthFilter(appBaseUrl, appClient));
+        fd.setFilter(new WsgwAuthFilter(appBaseUrl, appClient, this.connectionIdProvider));
         ctx.addFilterDef(fd);
         FilterMap fm = new FilterMap();
         fm.setFilterName("wsgwAuth");
