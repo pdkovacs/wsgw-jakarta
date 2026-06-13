@@ -26,7 +26,8 @@ class WsTestClients implements AutoCloseable {
     private final List<WebsocketTestClient> clients = new ArrayList<>();
 
     WebsocketTestClient connect(URI uri, String[] apiKey, Consumer<String> onText) throws Exception {
-        var client = createConnectWebsocketClient(uri, apiKey, onText);
+        URI connectURI = URI.create(uri.toString().concat(WsgwPaths.CONNECT_FROM_CLIENT));
+        var client = createConnectWebsocketClient(connectURI, apiKey, onText);
         clients.add(client);
         return client;
     }
@@ -44,7 +45,7 @@ class WsTestClients implements AutoCloseable {
     }
 
     private WebsocketTestClient createConnectWebsocketClient(
-            URI wsgwWebscoketServerURI,
+            URI wsgwConnectUri,
             String[] apiKey,
             Consumer<String> onText
     ) throws Exception {
@@ -63,9 +64,10 @@ class WsTestClients implements AutoCloseable {
                     public void afterResponse(HandshakeResponse hr) {
                         var connectionId = hr.getHeaders().get("X-WSGW-CONNECTION-ID").getFirst();
                         futureConnectionId.complete(connectionId);
+                        log.debug("ClientEndpointConfig.Configurator after handshake done");
                     }
                 }).build();
-        Session session = container.connectToServer(testClientEndpoint, cfg, wsgwWebscoketServerURI);
+        Session session = container.connectToServer(testClientEndpoint, cfg, wsgwConnectUri);
         // connectToServer returns only after onOpen has run, so the session is ready here — no latch needed.
         var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get());
         clients.add(wsTestClient);

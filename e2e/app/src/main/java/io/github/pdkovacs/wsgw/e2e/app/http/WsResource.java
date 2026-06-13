@@ -1,6 +1,6 @@
 package io.github.pdkovacs.wsgw.e2e.app.http;
 
-import io.github.pdkovacs.wsgw.e2e.app.common.wsgw.WsgwPaths;
+import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnections;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
@@ -25,15 +25,15 @@ public class WsResource {
     }
 
     @GET
-    @Path("/connect")
-    public Response connect(@HeaderParam(WsgwPaths.CONNECTION_ID_HEADER_KEY) String connId) {
+    @Path(AppPaths.CONNECT_FROM_WSGW)
+    public Response connect(@HeaderParam(AppPaths.CONNECTION_ID_HEADER_KEY) String connId) {
         String userId = requestUser.userId();
         if (userId == null) {
             log.error("No user id in session");
             return Response.status(Response.Status.FORBIDDEN).build();
         }
         if (connId == null || connId.isBlank()) {
-            log.errorf("No connection-id header %s", WsgwPaths.CONNECTION_ID_HEADER_KEY);
+            log.errorf("No connection-id header %s", AppPaths.CONNECTION_ID_HEADER_KEY);
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
         log.debugf("incoming connection request user=%s connid=%s", userId, connId);
@@ -42,8 +42,8 @@ public class WsResource {
     }
 
     @POST
-    @Path("/disconnected")
-    public Response disconnected(@HeaderParam(WsgwPaths.CONNECTION_ID_HEADER_KEY) String connId) {
+    @Path(AppPaths.DISCONNECTED_FROM_WSGW)
+    public Response disconnected(@HeaderParam(AppPaths.CONNECTION_ID_HEADER_KEY) String connId) {
         String userId = requestUser.userId();
         if (userId == null) {
             log.info("incoming ws disconnection request without userId");
@@ -61,8 +61,8 @@ public class WsResource {
     }
 
     @POST
-    @Path("/message")
-    public Response message(@HeaderParam(WsgwPaths.CONNECTION_ID_HEADER_KEY) String connId,
+    @Path(AppPaths.MESSAGE_FROM_WSGW)
+    public Response message(@HeaderParam(AppPaths.CONNECTION_ID_HEADER_KEY) String connId,
                             Map<String, Object> body) {
         if (connId == null || connId.isBlank()) {
             log.info("send message request without connection-id");

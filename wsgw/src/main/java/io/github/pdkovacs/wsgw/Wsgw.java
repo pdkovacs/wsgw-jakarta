@@ -59,13 +59,13 @@ public class Wsgw {
 
         appClient = createHttpClient();
 
-        // register the filter on /ws
+        // register the filter on any path
         FilterDef fd = new FilterDef();
-        fd.setFilterName("wsgwAuth");
-        fd.setFilter(new WsgwAuthFilter(appBaseUrl, appClient, this.connectionIdProvider));
+        fd.setFilterName("connect");
+        fd.setFilter(new WsgwConnectFilter(appBaseUrl, appClient, this.connectionIdProvider));
         ctx.addFilterDef(fd);
         FilterMap fm = new FilterMap();
-        fm.setFilterName("wsgwAuth");
+        fm.setFilterName("connect");
         fm.addURLPattern("/*");
         ctx.addFilterMap(fm);
 

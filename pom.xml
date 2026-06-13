@@ -13,6 +13,7 @@
     <description>WebSocket gateway and its end-to-end test harness.</description>
 
     <modules>
+        <module>wsgw-contract</module>
         <module>wsgw</module>
         <module>e2e</module>
     </modules>

@@ -16,7 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
 
-public class WsgwAuthFilter extends HttpFilter {
+public class WsgwConnectFilter extends HttpFilter {
     // Hop-by-hop WebSocket upgrade headers (plus host/content-length, which the
     // java.net.http client manages itself). These are stripped before relaying
     // the client's headers to the backend, since the WS upgrade happens between
@@ -31,7 +31,7 @@ public class WsgwAuthFilter extends HttpFilter {
             "sec-websocket-extensions",
             "sec-websocket-protocol");
 
-    private static final Logger log = LoggerFactory.getLogger(WsgwAuthFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(WsgwConnectFilter.class);
 
     static final String CONN_ID_HEADER = "X-WSGW-CONNECTION-ID";
 
@@ -39,7 +39,7 @@ public class WsgwAuthFilter extends HttpFilter {
     private final HttpClient appClient;   // same java.net.http client as the Jetty version
     private final ConnectionIdProvider connectionIdProvider;
 
-    public WsgwAuthFilter(String appBaseUrl, HttpClient appClient, ConnectionIdProvider connectionIdProvider) {
+    public WsgwConnectFilter(String appBaseUrl, HttpClient appClient, ConnectionIdProvider connectionIdProvider) {
         this.appBaseUrl = appBaseUrl;
         this.appClient = appClient;
         this.connectionIdProvider = connectionIdProvider;
@@ -53,7 +53,7 @@ public class WsgwAuthFilter extends HttpFilter {
 
         log.debug("doFilter: path = {}", path);
 
-        if (!path.equals("/ws")) {
+        if (!path.equals(WsgwPaths.CONNECT_FROM_CLIENT)) {
             log.debug("HttpHandler minding its own business...");
             res.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
@@ -92,7 +92,7 @@ public class WsgwAuthFilter extends HttpFilter {
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(HttpServletRequest req, String connectionId) throws Exception {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(appBaseUrl + "/connect"));
+                .uri(URI.create(appBaseUrl + AppPaths.CONNECT_FROM_WSGW));
         requestBuilder.setHeader(Wsgw.X_WSGW_CONNECTION_ID, connectionId);
 
         var headerNames = Collections.list(req.getHeaderNames());
@@ -106,7 +106,7 @@ public class WsgwAuthFilter extends HttpFilter {
 
         log.debug("Registering with app {}: trying...", appBaseUrl);
         HttpResponse<Void> response = appClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
-        log.debug("Registering with app {}: status {}", appBaseUrl, (Integer) response.statusCode());
+        log.debug("Registered with app {}: status {}", appBaseUrl, response.statusCode());
         return response.statusCode();
     }
 }
@@ -121,14 +121,14 @@ class ConnIdRequestWrapper extends HttpServletRequestWrapper {
 
     @Override
     public String getHeader(String name) {
-        return WsgwAuthFilter.CONN_ID_HEADER.equalsIgnoreCase(name)
+        return WsgwConnectFilter.CONN_ID_HEADER.equalsIgnoreCase(name)
                 ? connectionId
                 : super.getHeader(name);
     }
 
     @Override
     public Enumeration<String> getHeaders(String name) {
-        return WsgwAuthFilter.CONN_ID_HEADER.equalsIgnoreCase(name)
+        return WsgwConnectFilter.CONN_ID_HEADER.equalsIgnoreCase(name)
                 ? Collections.enumeration(List.of(connectionId))
                 : super.getHeaders(name);
     }
@@ -136,7 +136,7 @@ class ConnIdRequestWrapper extends HttpServletRequestWrapper {
     @Override
     public Enumeration<String> getHeaderNames() {   // ← without this, the id is invisible to modifyHandshake
         var names = new ArrayList<>(Collections.list(super.getHeaderNames()));
-        names.add(WsgwAuthFilter.CONN_ID_HEADER);
+        names.add(WsgwConnectFilter.CONN_ID_HEADER);
         return Collections.enumeration(names);
     }
 }

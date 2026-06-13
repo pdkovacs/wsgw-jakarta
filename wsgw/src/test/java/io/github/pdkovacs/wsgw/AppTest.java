@@ -14,10 +14,6 @@ import java.nio.file.Path;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -59,36 +55,44 @@ public class AppTest {
     }
 
     @Test
-    void canConnectWithValidHeaders() throws Exception {
+    void canConnectWithValidHeader() throws Exception {
         Function<String, Consumer<String>> messageHandler = clientId -> message -> log.debug("[{}] message received: {}", clientId, message);
 
-        URI wsgwWebscoketServerURI = URI.create(wsgwBaseUrl.toString().concat("/ws"));
+        URI wsgwWebscoketServerURI = URI.create(wsgwBaseUrl.toString());
         String connId1 = this.connectionIdGeneratorMock.roll();
-        try (var wsTestClient1 = wsTestClients.connect(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client1"))) {
-            assertThat(wsTestClient1.connectionId()).isEqualTo(connId1);
-            String connId2 = this.connectionIdGeneratorMock.roll();
-            try (var wsTestClient2 = wsTestClients.connect(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client2"))) {
-                assertThat(wsTestClient2.connectionId()).isEqualTo(connId2);
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(String.format("http://%s:%d", wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort()).concat("/some-unrelated-rest-endpoint")))
-                        .build();
-                HttpResponse<String> response;
-                try {
-                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                } catch (Exception e) {
-                    log.error("Failed to connect to app ({})", wsgwBaseUrl, e);
-                    throw new RuntimeException(e);
-                }
-                assertThat(response.statusCode()).as("404 from unmapped rest endpoint").isEqualTo(HttpServletResponse.SC_NOT_FOUND);
+        var wsTestClient1 = wsTestClients.connect(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client1"));
+        assertThat(wsTestClient1.connectionId()).isEqualTo(connId1);
+        String connId2 = this.connectionIdGeneratorMock.roll();
+        var wsTestClient2 = wsTestClients.connect(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client2"));
+        assertThat(wsTestClient2.connectionId()).isEqualTo(connId2);
+        assertFailureBeforeUpgrade("404 from unmapped rest endpoint", HttpServletResponse.SC_NOT_FOUND, "/some-unrelated-rest-endpoint");
 
-                try (Session session1 = wsTestClient1.websocketClientSession()) {
-                    try (Session session2 = wsTestClient2.websocketClientSession()) {
-                        session2.getBasicRemote().sendText("Hello from 2");
-                        session1.getBasicRemote().sendText("Hello from 1");
-                    }
-                }
+        try (Session session1 = wsTestClient1.websocketClientSession()) {
+            try (Session session2 = wsTestClient2.websocketClientSession()) {
+                session2.getBasicRemote().sendText("Hello from 2");
+                session1.getBasicRemote().sendText("Hello from 1");
             }
         }
+    }
+
+    private void assertFailureBeforeUpgrade(String assertionContext, int expectedHttpStatusCode, String wsgwPath) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(String.format("http://%s:%d", wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort()).concat(wsgwPath)))
+                .build();
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            log.error("Failed to connect to app ({})", wsgwBaseUrl, e);
+            throw new RuntimeException(e);
+        }
+        assertThat(response.statusCode()).as(assertionContext).isEqualTo(expectedHttpStatusCode);
+    }
+
+    @Test
+    void canNotConnectWithInvalidHeader() throws Exception {
+        var invalidAPIKey = new String[] { apiKey[0], apiKey[1].concat("kalap") };
+        assertFailureBeforeUpgrade("401 from /connect handshake with invalid key", HttpServletResponse.SC_UNAUTHORIZED, "/connect");
     }
 
 }

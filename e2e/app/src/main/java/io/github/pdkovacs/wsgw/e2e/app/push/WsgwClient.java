@@ -1,9 +1,9 @@
 package io.github.pdkovacs.wsgw.e2e.app.push;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.e2e.app.common.dto.E2EMessage;
 import io.github.pdkovacs.wsgw.e2e.app.common.wsgw.WsgwLocator;
-import io.github.pdkovacs.wsgw.e2e.app.common.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.e2e.app.config.AppConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Singleton;
@@ -42,7 +42,7 @@ public class WsgwClient {
     }
 
     public int sendToConnection(String connectionId, E2EMessage message) throws Exception {
-        String url = baseUrl + WsgwPaths.MESSAGE_PATH + "/" + connectionId;
+        String url = baseUrl + WsgwPaths.MESSAGE_FROM_APP + "/" + connectionId;
         byte[] body = objectMapper.writeValueAsBytes(message);
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))

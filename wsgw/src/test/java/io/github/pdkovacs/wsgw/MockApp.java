@@ -37,7 +37,7 @@ public class MockApp {
             var path = req.getServletPath();
             log.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(), path);
 
-            if (path.equals("/connect")) {
+            if (path.equals(AppPaths.CONNECT_FROM_WSGW)) {
                 var connectionId = req.getHeader(Wsgw.X_WSGW_CONNECTION_ID);
                 log.debug("MockAppServer: incoming WSGW connection request with connectionID {}", connectionId);
                 String apiKey = req.getHeader(this.expectedApiKey[0]);

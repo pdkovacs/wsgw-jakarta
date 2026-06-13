@@ -12,7 +12,7 @@ public class WsgwWsListener implements ServletContextListener {
         var sc = (ServerContainer) e.getServletContext()
                 .getAttribute("jakarta.websocket.server.ServerContainer");  // set by WsSci
         try {
-            sc.addEndpoint(ServerEndpointConfig.Builder.create(WsgwEndpoint.class, "/ws")
+            sc.addEndpoint(ServerEndpointConfig.Builder.create(WsgwEndpoint.class, WsgwPaths.CONNECT_FROM_CLIENT)
                     .configurator(new ConnIdConfigurator())
                     .build());
         } catch (DeploymentException ex) { throw new RuntimeException(ex); }
