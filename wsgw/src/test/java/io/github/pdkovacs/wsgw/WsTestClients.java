@@ -1,0 +1,74 @@
+package io.github.pdkovacs.wsgw;
+
+import jakarta.websocket.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession,
+                           String connectionId) implements AutoCloseable {
+
+    public void close() throws Exception {
+        // `close` defaults to new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "no reason")
+        websocketClientSession.close();
+    }
+}
+
+class WsTestClients implements AutoCloseable {
+    private static Logger log = LoggerFactory.getLogger(WsTestClients.class);
+
+    private final List<WebsocketTestClient> clients = new ArrayList<>();
+
+    WebsocketTestClient connect(URI uri, String[] apiKey, Consumer<String> onText) throws Exception {
+        var client = createConnectWebsocketClient(uri, apiKey, onText);
+        clients.add(client);
+        return client;
+    }
+
+    @Override
+    public void close() {
+        for (var c : clients) {
+            try {
+                c.close();
+            } catch (Exception e) {
+                log.warn("client close failed", e);
+            }
+        }
+        clients.clear();
+    }
+
+    private WebsocketTestClient createConnectWebsocketClient(
+            URI wsgwWebscoketServerURI,
+            String[] apiKey,
+            Consumer<String> onText
+    ) throws Exception {
+        WebSocketContainer container = ContainerProvider.getWebSocketContainer();   // ← Tomcat's client impl
+        TestClientEndpoint testClientEndpoint = new TestClientEndpoint();
+        // To exercise the auth path in tests, attach handshake headers with a client Configurator:
+        var futureConnectionId = new CompletableFuture<String>();
+        var cfg = ClientEndpointConfig.Builder.create()
+                .configurator(new ClientEndpointConfig.Configurator() {
+                    @Override
+                    public void beforeRequest(Map<String, List<String>> headers) {
+                        headers.put(apiKey[0], List.of(apiKey[1]));   // app checks header[name]==value
+                    }
+
+                    @Override
+                    public void afterResponse(HandshakeResponse hr) {
+                        var connectionId = hr.getHeaders().get("X-WSGW-CONNECTION-ID").getFirst();
+                        futureConnectionId.complete(connectionId);
+                    }
+                }).build();
+        Session session = container.connectToServer(testClientEndpoint, cfg, wsgwWebscoketServerURI);
+        // connectToServer returns only after onOpen has run, so the session is ready here — no latch needed.
+        var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get());
+        clients.add(wsTestClient);
+        return wsTestClient;
+    }
+}

@@ -34,22 +34,27 @@ public class AppTest {
     private final ConnectionIdGeneratorMock connectionIdGeneratorMock =  new ConnectionIdGeneratorMock();
 
     private final HttpClient httpClient = Wsgw.createHttpClient();
-    private final List<WebsocketTestClient> wsTestClients = new ArrayList<>();
 
     String[] apiKey = new String[] { "XKEY", "asdfqwe" };
     private MockApp mockApp = new MockApp();
+
+    private Wsgw wsgw;
+
+    private WsTestClients wsTestClients = new WsTestClients();
 
     @BeforeEach
     public void setUp() throws Exception {
         int appPort = mockApp.start(tempDir, apiKey, connectionIdGeneratorMock);
         String appMockUrl = "http://localhost:%d".formatted(appPort);
 
-        Wsgw wsgw = new Wsgw(appMockUrl, tempDir.resolve("wsgw"), connectionIdGeneratorMock);
+        wsgw = new Wsgw(appMockUrl, tempDir.resolve("wsgw"), connectionIdGeneratorMock);
         wsgwBaseUrl = URI.create("ws://localhost:%d".formatted(wsgw.start()));
     }
 
     @AfterEach
     public void tearDown() throws Exception {
+        wsTestClients.close();
+        wsgw.stop();;
         mockApp.stop();
     }
 
@@ -59,10 +64,10 @@ public class AppTest {
 
         URI wsgwWebscoketServerURI = URI.create(wsgwBaseUrl.toString().concat("/ws"));
         String connId1 = this.connectionIdGeneratorMock.roll();
-        try (var wsTestClient1 = createConnectWebsocketClient(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client1"))) {
+        try (var wsTestClient1 = wsTestClients.connect(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client1"))) {
             assertThat(wsTestClient1.connectionId()).isEqualTo(connId1);
             String connId2 = this.connectionIdGeneratorMock.roll();
-            try (var wsTestClient2 = createConnectWebsocketClient(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client2"))) {
+            try (var wsTestClient2 = wsTestClients.connect(wsgwWebscoketServerURI, apiKey, messageHandler.apply("client2"))) {
                 assertThat(wsTestClient2.connectionId()).isEqualTo(connId2);
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(String.format("http://%s:%d", wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort()).concat("/some-unrelated-rest-endpoint")))
@@ -86,39 +91,5 @@ public class AppTest {
         }
     }
 
-    private WebsocketTestClient createConnectWebsocketClient(
-            URI wsgwWebscoketServerURI,
-            String[] apiKey,
-            Consumer<String> onText
-    ) throws Exception {
-        WebSocketContainer container = ContainerProvider.getWebSocketContainer();   // ← Tomcat's client impl
-        TestClientEndpoint testClientEndpoint = new TestClientEndpoint();
-        // To exercise the auth path in tests, attach handshake headers with a client Configurator:
-        var futureConnectionId = new CompletableFuture<String>();
-        var cfg = ClientEndpointConfig.Builder.create()
-                .configurator(new ClientEndpointConfig.Configurator() {
-                    @Override
-                    public void beforeRequest(Map<String, List<String>> headers) {
-                        headers.put(apiKey[0], List.of(apiKey[1]));   // app checks header[name]==value
-                    }
-
-                    @Override
-                    public void afterResponse(HandshakeResponse hr) {
-                        var connectionId = hr.getHeaders().get("X-WSGW-CONNECTION-ID").getFirst();
-                        futureConnectionId.complete(connectionId);
-                    }
-                }).build();
-        Session session = container.connectToServer(testClientEndpoint, cfg, wsgwWebscoketServerURI);
-        // connectToServer returns only after onOpen has run, so the session is ready here — no latch needed.
-        var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get());
-        wsTestClients.add(wsTestClient);
-        return wsTestClient;
-    }
 }
 
-record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession, String connectionId) implements AutoCloseable {
-    public void close() throws Exception {
-        // `close` defaults to new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "no reason")
-        websocketClientSession.close();
-    }
-}
