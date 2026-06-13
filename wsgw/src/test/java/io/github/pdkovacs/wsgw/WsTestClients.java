@@ -8,8 +8,9 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
+import java.util.concurrent.LinkedBlockingQueue;
 
 record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession,
                            String connectionId) implements AutoCloseable {
@@ -21,13 +22,13 @@ record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websoc
 }
 
 class WsTestClients implements AutoCloseable {
-    private static Logger log = LoggerFactory.getLogger(WsTestClients.class);
+    final private static Logger log = LoggerFactory.getLogger(WsTestClients.class);
 
     private final List<WebsocketTestClient> clients = new ArrayList<>();
 
-    WebsocketTestClient connect(URI uri, String[] apiKey, Consumer<String> onText) throws Exception {
+    WebsocketTestClient connect(URI uri, String[] apiKey) throws Exception {
         URI connectURI = URI.create(uri.toString().concat(WsgwPaths.CONNECT_FROM_CLIENT));
-        var client = createConnectWebsocketClient(connectURI, apiKey, onText);
+        var client = createConnectWebsocketClient(connectURI, apiKey);
         clients.add(client);
         return client;
     }
@@ -46,8 +47,7 @@ class WsTestClients implements AutoCloseable {
 
     private WebsocketTestClient createConnectWebsocketClient(
             URI wsgwConnectUri,
-            String[] apiKey,
-            Consumer<String> onText
+            String[] apiKey
     ) throws Exception {
         WebSocketContainer container = ContainerProvider.getWebSocketContainer();   // ← Tomcat's client impl
         TestClientEndpoint testClientEndpoint = new TestClientEndpoint();
@@ -72,5 +72,22 @@ class WsTestClients implements AutoCloseable {
         var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get());
         clients.add(wsTestClient);
         return wsTestClient;
+    }
+}
+
+class TestClientEndpoint extends Endpoint {
+    final BlockingQueue<String> messages = new LinkedBlockingQueue<>();
+
+    Session session;
+
+    @Override
+    public void onOpen(Session session, EndpointConfig endpointConfig) {
+        this.session = session;
+        this.session.addMessageHandler(new MessageHandler.Whole<String>() {
+            @Override
+            public void onMessage(String message) {
+                messages.add(message);
+            }
+        });
     }
 }

@@ -1,5 +1,8 @@
 package io.github.pdkovacs.wsgw;
 
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpFilter;
 import org.apache.catalina.Context;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.tomcat.util.descriptor.web.FilterDef;
@@ -8,9 +11,11 @@ import org.apache.tomcat.websocket.server.WsSci;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.http.HttpClient;
+import java.io.IOException;
 import java.nio.file.Path;
-import java.time.Duration;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 public class Wsgw {
 
@@ -26,10 +31,6 @@ public class Wsgw {
     private final ConnectionIdProvider connectionIdProvider;
 
     private Tomcat tomcat;
-    // One shared client for the whole gateway: its selector, thread pool and
-    // (keep-alive) connection pool are reused across every WS connection, instead
-    // of being built up and torn down per request.
-    private HttpClient appClient;
 
     public Wsgw(String appBaseUrl) {
         // Production default: the JVM temp dir is always present and writable,
@@ -57,24 +58,47 @@ public class Wsgw {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
-        appClient = createHttpClient();
-
-        // register the filter on any path
-        FilterDef fd = new FilterDef();
-        fd.setFilterName("connect");
-        fd.setFilter(new WsgwConnectFilter(appBaseUrl, appClient, this.connectionIdProvider));
-        ctx.addFilterDef(fd);
-        FilterMap fm = new FilterMap();
-        fm.setFilterName("connect");
-        fm.addURLPattern("/*");
-        ctx.addFilterMap(fm);
+        // register the connect filter: it generates the connection id, authenticates
+        // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
+        // handshake (modifyHandshake) to read. Without it, connectionId is "?".
+        addFilters(ctx);
 
         // turn on WS support + register the endpoint before the context finishes starting
-        ctx.addServletContainerInitializer(new WsSci(), null);
-        ctx.addApplicationListener(WsgwWsListener.class.getName());
+        ctx.addServletContainerInitializer(new WsSci() {
+            @Override
+            public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
+                ctx.addListener(new WsgwWsListener(createMessageRelay()));
+                super.onStartup(clazzes, ctx);
+            }
+        }, null);
+
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();
+    }
+
+    private void addFilters(Context ctx) {
+        addFilter(ctx, "connect", new WsgwConnectFilter(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
+    }
+
+    private MessageRelay createMessageRelay() {
+        return (connectHeaders, connectionId, msg) -> {
+            try {
+                logger.debug("Waiting for futureConnectReqHeaders to resolve...");
+                RequestToApp.send(appBaseUrl, connectHeaders, connectionId, AppPaths.MESSAGE_FROM_WSGW, "POST", msg);
+                logger.debug("Message sent to app");
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for request to connect");
+                throw new RuntimeException(e);
+            } catch (IOException e) {
+                logger.warn("IOException while waiting for request to connect", e);
+                throw new RuntimeException(e);
+            } catch (Exception e) {
+                logger.error("Exception while waiting for request to connect", e);
+                throw new RuntimeException(e);
+            }
+        };
+
     }
 
     public void stop() {
@@ -85,20 +109,17 @@ public class Wsgw {
         } catch (Exception e) {
             logger.error("Failed to stop server");
             throw new RuntimeException(e);
-        } finally {
-            if (appClient != null) {
-                appClient.close();
-                appClient = null;
-            }
         }
     }
 
-
-    public static HttpClient createHttpClient() {
-        return HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(20))
-                .build();
+    static void addFilter(Context ctx, String name, HttpFilter filter, String urlPattern) {
+        FilterDef fd = new FilterDef();
+        fd.setFilterName(name);
+        fd.setFilter(filter);
+        ctx.addFilterDef(fd);
+        FilterMap fm = new FilterMap();
+        fm.setFilterName(name);
+        fm.addURLPattern(urlPattern);
+        ctx.addFilterMap(fm);
     }
 }
