@@ -34,4 +34,8 @@ public class WsgwTestContext {
         wsgw.stop();
         fakeApp.stop();
     }
+
+    public URI getWsgwUrl(String scheme, String wsgwPath) {
+        return URI.create("%s://%s:%d%s".formatted(scheme, wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort(), wsgwPath));
+    }
 }

@@ -46,7 +46,7 @@ public class ConnectionTest {
 
     private void assertFailureBeforeUpgrade(String assertionContext, int expectedHttpStatusCode, String wsgwPath) {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(String.format("http://%s:%d", wsgwTestContext.wsgwBaseUrl.getHost(), wsgwTestContext.wsgwBaseUrl.getPort()).concat(wsgwPath)))
+                .uri(URI.create("http://%s:%d".formatted(wsgwTestContext.wsgwBaseUrl.getHost(), wsgwTestContext.wsgwBaseUrl.getPort()).concat(wsgwPath)))
                 .build();
         HttpResponse<String> response;
         try {

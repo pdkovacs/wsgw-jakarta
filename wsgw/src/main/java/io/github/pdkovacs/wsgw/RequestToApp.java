@@ -16,7 +16,7 @@ public class RequestToApp {
 
     private static final Logger log = LoggerFactory.getLogger(RequestToApp.class);
 
-    static final String CONN_ID_HEADER = "X-WSGW-CONNECTION-ID";
+    public static final String CONN_ID_HEADER = "X-WSGW-CONNECTION-ID";
     // Hop-by-hop WebSocket upgrade headers (plus host/content-length, which the
     // java.net.http client manages itself). These are stripped before relaying
     // the client's headers to the backend, since the WS upgrade happens between
@@ -49,7 +49,7 @@ public class RequestToApp {
         return RESTRICTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
     }
 
-    static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders, String connectionId,
+    public static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders, String connectionId,
                                    String appPath, String reqMethod, String body) throws IOException, InterruptedException {
         log.debug("Building request {} to app at {}", connectionId, appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()

@@ -1,30 +1,29 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.filters;
 
+import io.github.pdkovacs.wsgw.AppPaths;
+import io.github.pdkovacs.wsgw.ConnectionIdProvider;
+import io.github.pdkovacs.wsgw.RequestToApp;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
-import org.apache.catalina.Context;
-import org.apache.tomcat.util.descriptor.web.FilterDef;
-import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.http.HttpResponse;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.List;
+import java.util.Map;
 
-public class WsgwConnectFilter extends HttpFilter {
+public class Connect extends HttpFilter {
 
-    private static final Logger log = LoggerFactory.getLogger(WsgwConnectFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(Connect.class);
 
     private final String appBaseUrl;
     private final ConnectionIdProvider connectionIdProvider;
 
-    public WsgwConnectFilter(String appBaseUrl, ConnectionIdProvider connectionIdProvider) {
+    public Connect(String appBaseUrl, ConnectionIdProvider connectionIdProvider) {
         this.appBaseUrl = appBaseUrl;
         this.connectionIdProvider = connectionIdProvider;
     }
@@ -33,7 +32,6 @@ public class WsgwConnectFilter extends HttpFilter {
     protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException, ServletException {
 
-        var path = req.getServletPath();
         var reqHeaders = RequestToApp.getRequestHeaders(req);
 
         var connectionId = this.connectionIdProvider.generateId();
@@ -46,7 +44,7 @@ public class WsgwConnectFilter extends HttpFilter {
         }
 
         if (appStatus != HttpServletResponse.SC_NO_CONTENT) {
-            if (appStatus == HttpServletResponse.SC_UNAUTHORIZED ) {
+            if (appStatus == HttpServletResponse.SC_UNAUTHORIZED) {
                 res.setHeader("WWW-Authenticate", "Basic realm=\"wsgw\"");  // same RFC-7235 dance
                 res.sendError(HttpServletResponse.SC_UNAUTHORIZED);
             } else {
@@ -68,35 +66,5 @@ public class WsgwConnectFilter extends HttpFilter {
         HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders, connectionId, AppPaths.CONNECT_FROM_WSGW, "GET", null);
         log.debug("Registered {} with app at {}: status {}", connectionId, appBaseUrl, response.statusCode());
         return response.statusCode();
-    }
-}
-
-class ConnIdRequestWrapper extends HttpServletRequestWrapper {
-    private final String connectionId;
-
-    ConnIdRequestWrapper(HttpServletRequest request, String connectionId) {
-        super(request);
-        this.connectionId = connectionId;
-    }
-
-    @Override
-    public String getHeader(String name) {
-        return RequestToApp.CONN_ID_HEADER.equalsIgnoreCase(name)
-                ? connectionId
-                : super.getHeader(name);
-    }
-
-    @Override
-    public Enumeration<String> getHeaders(String name) {
-        return RequestToApp.CONN_ID_HEADER.equalsIgnoreCase(name)
-                ? Collections.enumeration(List.of(connectionId))
-                : super.getHeaders(name);
-    }
-
-    @Override
-    public Enumeration<String> getHeaderNames() {   // ← without this, the id is invisible to modifyHandshake
-        var names = new ArrayList<>(Collections.list(super.getHeaderNames()));
-        names.add(RequestToApp.CONN_ID_HEADER);
-        return Collections.enumeration(names);
     }
 }

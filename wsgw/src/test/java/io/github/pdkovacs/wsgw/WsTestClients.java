@@ -13,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 
 record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession,
-                           String connectionId) implements AutoCloseable {
+                           String connectionId, BlockingQueue<String> messageInbox) implements AutoCloseable {
 
     public void close() throws Exception {
         // `close` defaults to new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "no reason")
@@ -50,7 +50,8 @@ class WsTestClients implements AutoCloseable {
             String[] apiKey
     ) throws Exception {
         WebSocketContainer container = ContainerProvider.getWebSocketContainer();   // ← Tomcat's client impl
-        TestClientEndpoint testClientEndpoint = new TestClientEndpoint();
+        var messageInbox = new LinkedBlockingQueue<String>();
+        TestClientEndpoint testClientEndpoint = new TestClientEndpoint(messageInbox);
         // To exercise the auth path in tests, attach handshake headers with a client Configurator:
         var futureConnectionId = new CompletableFuture<String>();
         var cfg = ClientEndpointConfig.Builder.create()
@@ -69,16 +70,20 @@ class WsTestClients implements AutoCloseable {
                 }).build();
         Session session = container.connectToServer(testClientEndpoint, cfg, wsgwConnectUri);
         // connectToServer returns only after onOpen has run, so the session is ready here — no latch needed.
-        var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get());
+        var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get(), messageInbox);
         clients.add(wsTestClient);
         return wsTestClient;
     }
 }
 
 class TestClientEndpoint extends Endpoint {
-    final BlockingQueue<String> messages = new LinkedBlockingQueue<>();
+    final BlockingQueue<String> messageInbox;
 
     Session session;
+
+    public TestClientEndpoint(BlockingQueue messageInbox) {
+        this.messageInbox = messageInbox;
+    }
 
     @Override
     public void onOpen(Session session, EndpointConfig endpointConfig) {
@@ -86,7 +91,7 @@ class TestClientEndpoint extends Endpoint {
         this.session.addMessageHandler(new MessageHandler.Whole<String>() {
             @Override
             public void onMessage(String message) {
-                messages.add(message);
+                messageInbox.add(message);
             }
         });
     }

@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw;
 
+import io.github.pdkovacs.wsgw.filters.Connect;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -13,9 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 
 public class Wsgw {
 
@@ -78,7 +77,8 @@ public class Wsgw {
     }
 
     private void addFilters(Context ctx) {
-        addFilter(ctx, "connect", new WsgwConnectFilter(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx, "connect", new Connect(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx, "message", new Connect(appBaseUrl, this.connectionIdProvider), WsgwPaths.MESSAGE_FROM_APP);
     }
 
     private MessageRelay createMessageRelay() {
