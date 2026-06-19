@@ -16,7 +16,6 @@ public class RequestToApp {
 
     private static final Logger log = LoggerFactory.getLogger(RequestToApp.class);
 
-    public static final String CONN_ID_HEADER = "X-WSGW-CONNECTION-ID";
     // Hop-by-hop WebSocket upgrade headers (plus host/content-length, which the
     // java.net.http client manages itself). These are stripped before relaying
     // the client's headers to the backend, since the WS upgrade happens between
@@ -49,18 +48,17 @@ public class RequestToApp {
         return RESTRICTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
     }
 
-    public static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders, String connectionId,
+    public static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders,
                                    String appPath, String reqMethod, String body) throws IOException, InterruptedException {
-        log.debug("Building request {} to app at {}", connectionId, appPath);
+        log.debug("Building request {} to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
-        requestBuilder.setHeader(Wsgw.X_WSGW_CONNECTION_ID, connectionId);
-        log.debug("Setting request method ({})", connectionId);
+        log.debug("Setting request method ({})", appPath);
         if (reqMethod != null) {
             requestBuilder.method(reqMethod, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
         }
 
-        log.debug("Assembling headers... ({}): {}", connectionId, reqHeaders);
+        log.debug("Assembling headers... ({}): {}", appPath, reqHeaders);
         var headerNames = reqHeaders.keySet();
         for (String headerName : headerNames) {
             if (isRestricted(headerName)) {
@@ -70,9 +68,9 @@ public class RequestToApp {
             reqHeaders.get(headerName).forEach(value -> requestBuilder.header(headerName, value));
         }
 
-        log.debug("Sending request... ({})", connectionId);
+        log.debug("Sending request... ({})", appPath);
         var response = appClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
-        log.debug("Request {} returned {}", connectionId, response.statusCode());
+        log.debug("Request {} returned {}", appPath, response.statusCode());
         return response;
     }
 

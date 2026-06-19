@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.filters;
 
 import io.github.pdkovacs.wsgw.RequestToApp;
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 
@@ -19,14 +20,14 @@ public class ConnIdRequestWrapper extends HttpServletRequestWrapper {
 
     @Override
     public String getHeader(String name) {
-        return RequestToApp.CONN_ID_HEADER.equalsIgnoreCase(name)
+        return WsgwPaths.CONNECTION_ID_HEADER_KEY.equalsIgnoreCase(name)
                 ? connectionId
                 : super.getHeader(name);
     }
 
     @Override
     public Enumeration<String> getHeaders(String name) {
-        return RequestToApp.CONN_ID_HEADER.equalsIgnoreCase(name)
+        return WsgwPaths.CONNECTION_ID_HEADER_KEY.equalsIgnoreCase(name)
                 ? Collections.enumeration(List.of(connectionId))
                 : super.getHeaders(name);
     }
@@ -34,7 +35,7 @@ public class ConnIdRequestWrapper extends HttpServletRequestWrapper {
     @Override
     public Enumeration<String> getHeaderNames() {   // ← without this, the id is invisible to modifyHandshake
         var names = new ArrayList<>(Collections.list(super.getHeaderNames()));
-        names.add(RequestToApp.CONN_ID_HEADER);
+        names.add(WsgwPaths.CONNECTION_ID_HEADER_KEY);
         return Collections.enumeration(names);
     }
 }

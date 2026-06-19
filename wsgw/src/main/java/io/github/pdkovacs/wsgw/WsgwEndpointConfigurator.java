@@ -22,10 +22,10 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
     @Override
     public void modifyHandshake(ServerEndpointConfig sec, HandshakeRequest req, HandshakeResponse res) {
         logger.debug("modifyHandshake called");
-        var id = req.getHeaders().getOrDefault(RequestToApp.CONN_ID_HEADER, List.of("?")).getFirst();
+        var id = req.getHeaders().getOrDefault(WsgwPaths.CONNECTION_ID_HEADER_KEY, List.of("?")).getFirst();
         sec.getUserProperties().put("connectionId", id);
         sec.getUserProperties().put("connectHeaders", req.getHeaders());
-        res.getHeaders().put(RequestToApp.CONN_ID_HEADER, List.of(id));  // echo on the 101 response
+        res.getHeaders().put(WsgwPaths.CONNECTION_ID_HEADER_KEY, List.of(id));  // echo on the 101 response
         logger.debug("modifyHandshake completed");
     }
 

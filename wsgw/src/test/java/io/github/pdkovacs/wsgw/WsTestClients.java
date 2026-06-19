@@ -63,7 +63,7 @@ class WsTestClients implements AutoCloseable {
 
                     @Override
                     public void afterResponse(HandshakeResponse hr) {
-                        var connectionId = hr.getHeaders().get("X-WSGW-CONNECTION-ID").getFirst();
+                        var connectionId = hr.getHeaders().get(WsgwPaths.CONNECTION_ID_HEADER_KEY).getFirst();
                         futureConnectionId.complete(connectionId);
                         log.debug("ClientEndpointConfig.Configurator after handshake done");
                     }

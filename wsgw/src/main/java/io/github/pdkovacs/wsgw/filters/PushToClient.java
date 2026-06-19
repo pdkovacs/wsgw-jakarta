@@ -1,7 +1,9 @@
 package io.github.pdkovacs.wsgw.filters;
 
 import io.github.pdkovacs.wsgw.AppPaths;
+import io.github.pdkovacs.wsgw.ConnectionIdExtractor;
 import io.github.pdkovacs.wsgw.RequestToApp;
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -28,7 +30,7 @@ public class PushToClient extends HttpFilter {
 
         var reqHeaders = RequestToApp.getRequestHeaders(req);
 
-        var connectionId = reqHeaders.get(AppPaths.CONNECTION_ID_HEADER_KEY).getFirst();
+        var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
         int appStatus;
         try {
             appStatus = registerWithApp(reqHeaders, connectionId);   // blocking; cheap on a virtual thread
@@ -57,7 +59,7 @@ public class PushToClient extends HttpFilter {
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
         log.debug("About to register {} with app at {}", connectionId, appBaseUrl);
-        HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders, connectionId, AppPaths.CONNECT_FROM_WSGW, "GET", null);
+        HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders, AppPaths.CONNECT_FROM_WSGW + "/" + connectionId, "GET", null);
         log.debug("Registered {} with app at {}: status {}", connectionId, appBaseUrl, response.statusCode());
         return response.statusCode();
     }

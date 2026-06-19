@@ -33,8 +33,8 @@ public class FakeApp {
             ctx.addServletMappingDecoded("/", "default");
 
             FromWsgwFilters.addFilter(ctx, "authn", new FromWsgwFilters.Authentication(expectedApiKey), "/*");
-            FromWsgwFilters.addFilter(ctx, "connect", new FromWsgwFilters.Connect(connectionEndpointMap), AppPaths.CONNECT_FROM_WSGW);
-            FromWsgwFilters.addFilter(ctx, "message", new FromWsgwFilters.Message(connectionEndpointMap), AppPaths.MESSAGE_FROM_WSGW);
+            FromWsgwFilters.addFilter(ctx, "connect", new FromWsgwFilters.Connect(connectionEndpointMap), AppPaths.CONNECT_FROM_WSGW + "/*");
+            FromWsgwFilters.addFilter(ctx, "message", new FromWsgwFilters.Message(connectionEndpointMap), AppPaths.MESSAGE_FROM_WSGW + "/*");
 
             tomcat.start();
             var appPort = tomcat.getConnector().getLocalPort();

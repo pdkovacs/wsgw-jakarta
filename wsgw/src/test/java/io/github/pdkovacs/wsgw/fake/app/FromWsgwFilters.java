@@ -1,6 +1,8 @@
 package io.github.pdkovacs.wsgw.fake.app;
 
+import io.github.pdkovacs.wsgw.ConnectionIdExtractor;
 import io.github.pdkovacs.wsgw.Wsgw;
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -39,7 +41,7 @@ public class FromWsgwFilters {
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
-            var connectionId = req.getHeader(Wsgw.X_WSGW_CONNECTION_ID);
+            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
             logger.debug("MockAppServer: incoming request with connectionID {}", connectionId);
             String apiKey = req.getHeader(this.expectedApiKey[0]);
             if (apiKey == null) {
@@ -68,7 +70,7 @@ public class FromWsgwFilters {
             var path = req.getServletPath();
             logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(), path);
 
-            var connectionId = req.getHeader(Wsgw.X_WSGW_CONNECTION_ID);
+            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
             connectionEndpointMap.put(connectionId, new WsgwConnectionEndpoint(connectionId));
             res.setStatus(HttpServletResponse.SC_NO_CONTENT);
         }
@@ -87,7 +89,7 @@ public class FromWsgwFilters {
             var path = req.getServletPath();
             logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(), path);
 
-            var connectionId = req.getHeader(Wsgw.X_WSGW_CONNECTION_ID);
+            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
             var connection = connectionEndpointMap.get(connectionId);
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
             logger.debug("message received: {}", message);

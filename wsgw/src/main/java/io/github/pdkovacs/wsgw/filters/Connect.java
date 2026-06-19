@@ -63,7 +63,7 @@ public class Connect extends HttpFilter {
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
         log.debug("About to register {} with app at {}", connectionId, appBaseUrl);
-        HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders, connectionId, AppPaths.CONNECT_FROM_WSGW, "GET", null);
+        HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders, AppPaths.CONNECT_FROM_WSGW + "/" + connectionId , "GET", null);
         log.debug("Registered {} with app at {}: status {}", connectionId, appBaseUrl, response.statusCode());
         return response.statusCode();
     }

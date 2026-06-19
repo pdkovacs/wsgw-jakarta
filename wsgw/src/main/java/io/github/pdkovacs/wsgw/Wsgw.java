@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
 import io.github.pdkovacs.wsgw.filters.Connect;
+import io.github.pdkovacs.wsgw.filters.PushToClient;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -19,8 +20,6 @@ import java.util.Set;
 public class Wsgw {
 
     private static final Logger logger = LoggerFactory.getLogger(Wsgw.class);
-
-    public static final String X_WSGW_CONNECTION_ID = "X-WSGW-CONNECTION-ID";
 
     private final String appBaseUrl;
     // Where Tomcat keeps its scratch/work area. Without this, embedded Tomcat
@@ -78,14 +77,14 @@ public class Wsgw {
 
     private void addFilters(Context ctx) {
         addFilter(ctx, "connect", new Connect(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
-        addFilter(ctx, "message", new Connect(appBaseUrl, this.connectionIdProvider), WsgwPaths.MESSAGE_FROM_APP);
+        addFilter(ctx, "message", new PushToClient(), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
     }
 
     private MessageRelay createMessageRelay() {
         return (connectHeaders, connectionId, msg) -> {
             try {
                 logger.debug("Waiting for futureConnectReqHeaders to resolve...");
-                RequestToApp.send(appBaseUrl, connectHeaders, connectionId, AppPaths.MESSAGE_FROM_WSGW, "POST", msg);
+                RequestToApp.send(appBaseUrl, connectHeaders, AppPaths.MESSAGE_FROM_WSGW + "/" + connectionId, "POST", msg);
                 logger.debug("Message sent to app");
             } catch (InterruptedException e) {
                 logger.warn("Interrupted while waiting for request to connect");
