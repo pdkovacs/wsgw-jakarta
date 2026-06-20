@@ -6,8 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class MessageTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(MessageTest.class);
+    private static final CtxLogger logger = CtxLogger.of(MessageTest.class);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 

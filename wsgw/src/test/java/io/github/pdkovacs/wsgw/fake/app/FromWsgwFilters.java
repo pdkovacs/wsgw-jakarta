@@ -1,8 +1,7 @@
 package io.github.pdkovacs.wsgw.fake.app;
 
 import io.github.pdkovacs.wsgw.ConnectionIdExtractor;
-import io.github.pdkovacs.wsgw.Wsgw;
-import io.github.pdkovacs.wsgw.WsgwPaths;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -11,8 +10,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.catalina.Context;
 import org.apache.tomcat.util.descriptor.web.FilterDef;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.concurrent.ConcurrentMap;
@@ -31,7 +28,7 @@ public class FromWsgwFilters {
     }
 
     public static class Authentication extends HttpFilter {
-        private static final Logger logger = LoggerFactory.getLogger(Connect.class);
+        private static final CtxLogger logger = CtxLogger.of(Connect.class);
 
         private final String[] expectedApiKey;
 
@@ -58,7 +55,7 @@ public class FromWsgwFilters {
     }
 
     public static class Connect extends HttpFilter {
-        private static final Logger logger = LoggerFactory.getLogger(Connect.class);
+        private static final CtxLogger logger = CtxLogger.of(Connect.class);
         private final ConcurrentMap<String, WsgwConnectionEndpoint> connectionEndpointMap;
 
         public Connect(ConcurrentMap<String, WsgwConnectionEndpoint> connectionEndpointMap) {
@@ -68,17 +65,20 @@ public class FromWsgwFilters {
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
             var path = req.getServletPath();
-            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
+            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(),
+                    req.getRequestURI(),
                     path);
 
-            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
+            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 2);
             connectionEndpointMap.put(connectionId, new WsgwConnectionEndpoint(connectionId));
+            logger.debug("Endpoint mapped to {}", connectionId);
+
             res.setStatus(HttpServletResponse.SC_NO_CONTENT);
         }
     }
 
     public static class Message extends HttpFilter {
-        private static final Logger logger = LoggerFactory.getLogger(Connect.class);
+        private static final CtxLogger logger = CtxLogger.of(Connect.class);
         private final ConcurrentMap<String, WsgwConnectionEndpoint> connectionEndpointMap;
 
         public Message(ConcurrentMap<String, WsgwConnectionEndpoint> connectionEndpointMap) {
@@ -91,11 +91,12 @@ public class FromWsgwFilters {
             logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
                     path);
 
-            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
+            var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 2);
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
-            logger.debug("message received: {}", message);
+            var cmlogger = logger.with("connectionId", connectionId).with("message", message);
+            cmlogger.debug("message received", message);
             connectionEndpointMap.get(connectionId).messages.add(message);
-            logger.debug("message recorded: {}", message);
+            cmlogger.debug("message recorded", message);
         }
     }
 }
