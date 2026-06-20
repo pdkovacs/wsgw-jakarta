@@ -9,9 +9,11 @@ import jakarta.websocket.server.ServerEndpointConfig;
 public class WsgwWsListener implements ServletContextListener {
 
     final private MessageRelay messageRelay;
+    final private SessionRegistrar registerSession;
 
-    WsgwWsListener(MessageRelay messageRelay) {
+    WsgwWsListener(MessageRelay messageRelay, SessionRegistrar registerSession) {
         this.messageRelay = messageRelay;
+        this.registerSession = registerSession;
     }
 
     @Override
@@ -20,7 +22,7 @@ public class WsgwWsListener implements ServletContextListener {
                 .getAttribute("jakarta.websocket.server.ServerContainer");  // set by WsSci
         try {
             sc.addEndpoint(ServerEndpointConfig.Builder.create(WsgwEndpoint.class, WsgwPaths.CONNECT_FROM_CLIENT)
-                    .configurator(new WsgwEndpointConfigurator(messageRelay))
+                    .configurator(new WsgwEndpointConfigurator(messageRelay, registerSession))
                     .build());
         } catch (DeploymentException ex) { throw new RuntimeException(ex); }
     }

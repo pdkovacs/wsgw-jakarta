@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
 import io.github.pdkovacs.wsgw.filters.Connect;
-import io.github.pdkovacs.wsgw.filters.PushToClient;
+import io.github.pdkovacs.wsgw.filters.FromAppMessage;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -56,16 +56,18 @@ public class Wsgw {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
+        WsConnections wsConnections = new WsConnections();
+
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
-        addFilters(ctx);
+        addFilters(ctx, wsConnections);
 
         // turn on WS support + register the endpoint before the context finishes starting
         ctx.addServletContainerInitializer(new WsSci() {
             @Override
             public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
-                ctx.addListener(new WsgwWsListener(createMessageRelay()));
+                ctx.addListener(new WsgwWsListener(createMessageRelay(), wsConnections));
                 super.onStartup(clazzes, ctx);
             }
         }, null);
@@ -75,9 +77,9 @@ public class Wsgw {
         return tomcat.getConnector().getLocalPort();
     }
 
-    private void addFilters(Context ctx) {
+    private void addFilters(Context ctx, MessagePusher messagePusher) {
         addFilter(ctx, "connect", new Connect(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
-        addFilter(ctx, "message", new PushToClient(), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
+        addFilter(ctx, "message", new FromAppMessage(messagePusher), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
     }
 
     private MessageRelay createMessageRelay() {

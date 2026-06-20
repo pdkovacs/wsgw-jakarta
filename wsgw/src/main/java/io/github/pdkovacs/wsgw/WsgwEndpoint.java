@@ -9,15 +9,16 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
 
 public class WsgwEndpoint extends Endpoint {
 
     private static final Logger logger = LoggerFactory.getLogger(WsgwEndpoint.class.getName());
 
+    private final SessionRegistrar registerSession;
     private final MessageRelay relay;                 // ← constructor-injected (app scope)
 
-    public WsgwEndpoint(MessageRelay relay) {
+    public WsgwEndpoint(SessionRegistrar registerSession, MessageRelay relay) {
+        this.registerSession = registerSession;
         this.relay = relay;
     }
 
@@ -28,6 +29,9 @@ public class WsgwEndpoint extends Endpoint {
         // per-connection wiring — read once, hydrate typed locals
         var connectionId  = (String) config.getUserProperties().get("connectionId");
         logger.debug("connectionId: " + connectionId);
+
+        registerSession.register(connectionId, session);
+
         @SuppressWarnings("unchecked")
         var connectHeaders = (Map<String, List<String>>) config.getUserProperties().get("connectHeaders");
 

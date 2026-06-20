@@ -17,7 +17,7 @@ public class WsResource {
 
     private static final Logger log = Logger.getLogger(WsResource.class);
 
-    private static final String CONN_ID_PATH_PARAM_NAME = "connId"
+    private static final String CONN_ID_PATH_PARAM_NAME = "connId";
 
     private final WsConnections wsConnections;
     private final RequestUser requestUser;
@@ -66,7 +66,7 @@ public class WsResource {
     @POST
     @Path(AppPaths.MESSAGE_FROM_WSGW + "/{" + CONN_ID_PATH_PARAM_NAME + "}")
     public Response message(@PathParam(WsgwPaths.CONNECTION_ID_HEADER_KEY) String connId,
-                            Map<String, Object> body) {
+            Map<String, Object> body) {
         if (connId == null || connId.isBlank()) {
             log.info("send message request without connection-id");
             return Response.status(Response.Status.BAD_REQUEST).build();

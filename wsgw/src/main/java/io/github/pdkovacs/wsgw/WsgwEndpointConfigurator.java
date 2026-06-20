@@ -13,9 +13,11 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
     private static final Logger logger = LoggerFactory.getLogger(WsgwEndpointConfigurator.class);
 
     private final MessageRelay messageRelay;
+    private final SessionRegistrar registerSession;
 
-    public WsgwEndpointConfigurator(MessageRelay messageRelay) {
+    public WsgwEndpointConfigurator(MessageRelay messageRelay, SessionRegistrar registerSession) {
         this.messageRelay = messageRelay;
+        this.registerSession = registerSession;
     }
 
 
@@ -37,7 +39,7 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
             // WsgwEndpoint is the only endpoint currently implemented
             throw new IllegalArgumentException("Unexpected endpoint type: " + clazz);
         }
-        T endpointInstance = clazz.cast(new WsgwEndpoint(messageRelay));
+        T endpointInstance = clazz.cast(new WsgwEndpoint(registerSession, messageRelay));
         logger.debug("getEndpointInstance completed");
         return endpointInstance;
     }
