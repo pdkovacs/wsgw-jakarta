@@ -7,7 +7,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.jboss.logging.Logger;
+import io.github.pdkovacs.wsgw.e2e.app.logging.CtxLogger;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,7 +17,7 @@ import java.util.Properties;
 @ApplicationScoped
 public class AppInfoResource {
 
-    private static final Logger log = Logger.getLogger(AppInfoResource.class);
+    private static final CtxLogger log = CtxLogger.of(AppInfoResource.class);
 
     public record AppInfo(String application, String version, String commit, String buildTime) {
     }

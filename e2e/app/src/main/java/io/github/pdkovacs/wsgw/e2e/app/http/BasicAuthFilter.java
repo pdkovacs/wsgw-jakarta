@@ -2,6 +2,7 @@ package io.github.pdkovacs.wsgw.e2e.app.http;
 
 import io.github.pdkovacs.wsgw.e2e.app.config.AppConfig;
 import io.github.pdkovacs.wsgw.e2e.app.config.PasswordCredentials;
+import io.github.pdkovacs.wsgw.e2e.app.logging.CtxLogger;
 import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -11,7 +12,6 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
-import org.jboss.logging.Logger;
 
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -22,7 +22,7 @@ import java.util.Base64;
 @Priority(Priorities.AUTHENTICATION)
 public class BasicAuthFilter implements ContainerRequestFilter {
 
-    private static final Logger log = Logger.getLogger(BasicAuthFilter.class);
+    private static final CtxLogger log = CtxLogger.of(BasicAuthFilter.class);
 
     @Context
     private ResourceInfo resourceInfo;
@@ -38,7 +38,7 @@ public class BasicAuthFilter implements ContainerRequestFilter {
     @Override
     public void filter(ContainerRequestContext ctx) {
         var isPublic = isPublic();
-        log.debugf("isPublic: %b", isPublic);
+        log.debug("isPublic: {}", isPublic);
         if (isPublic) {
             return;
         }

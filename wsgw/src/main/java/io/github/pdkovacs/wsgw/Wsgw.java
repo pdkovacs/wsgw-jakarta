@@ -2,6 +2,7 @@ package io.github.pdkovacs.wsgw;
 
 import io.github.pdkovacs.wsgw.filters.Connect;
 import io.github.pdkovacs.wsgw.filters.FromAppMessage;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -10,8 +11,6 @@ import org.apache.catalina.startup.Tomcat;
 import org.apache.tomcat.util.descriptor.web.FilterDef;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.websocket.server.WsSci;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -19,7 +18,7 @@ import java.util.Set;
 
 public class Wsgw {
 
-    private static final Logger logger = LoggerFactory.getLogger(Wsgw.class);
+    private static final CtxLogger logger = CtxLogger.of(Wsgw.class);
 
     private final String appBaseUrl;
     // Where Tomcat keeps its scratch/work area. Without this, embedded Tomcat
@@ -84,18 +83,19 @@ public class Wsgw {
 
     private MessageRelay createMessageRelay() {
         return (connectHeaders, connectionId, msg) -> {
+            var log = logger.with("connId", connectionId);
             try {
-                logger.debug("Waiting for futureConnectReqHeaders to resolve...");
+                log.debug("Waiting for futureConnectReqHeaders to resolve...");
                 RequestToApp.send(appBaseUrl, connectHeaders, AppPaths.MESSAGE_FROM_WSGW + "/" + connectionId, "POST", msg);
-                logger.debug("Message sent to app");
+                log.debug("Message sent to app");
             } catch (InterruptedException e) {
-                logger.warn("Interrupted while waiting for request to connect");
+                log.warn("Interrupted while waiting for request to connect");
                 throw new RuntimeException(e);
             } catch (IOException e) {
-                logger.warn("IOException while waiting for request to connect", e);
+                log.warn("IOException while waiting for request to connect", e);
                 throw new RuntimeException(e);
             } catch (Exception e) {
-                logger.error("Exception while waiting for request to connect", e);
+                log.error("Exception while waiting for request to connect", e);
                 throw new RuntimeException(e);
             }
         };

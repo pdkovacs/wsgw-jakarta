@@ -1,18 +1,17 @@
 package io.github.pdkovacs.wsgw;
 
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.CloseReason;
 import jakarta.websocket.Endpoint;
 import jakarta.websocket.EndpointConfig;
 import jakarta.websocket.Session;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
 
 public class WsgwEndpoint extends Endpoint {
 
-    private static final Logger logger = LoggerFactory.getLogger(WsgwEndpoint.class.getName());
+    private static final CtxLogger logger = CtxLogger.of(WsgwEndpoint.class);
 
     private final SessionRegistrar registerSession;
     private final MessageRelay relay;                 // ← constructor-injected (app scope)
@@ -28,7 +27,9 @@ public class WsgwEndpoint extends Endpoint {
 
         // per-connection wiring — read once, hydrate typed locals
         var connectionId  = (String) config.getUserProperties().get("connectionId");
-        logger.debug("connectionId: " + connectionId);
+        // a connection-scoped logger; every line below carries connId as a field
+        var log = logger.with("connId", connectionId);
+        log.debug("connection opened");
 
         registerSession.register(connectionId, session);
 
@@ -36,7 +37,7 @@ public class WsgwEndpoint extends Endpoint {
         var connectHeaders = (Map<String, List<String>>) config.getUserProperties().get("connectHeaders");
 
         session.addMessageHandler(String.class, msg -> relay.relay(connectHeaders, connectionId, msg));   // ← both scopes meet in the closure
-        logger.debug("onOpen completed");
+        log.debug("onOpen completed");
     }
 
     @Override public void onClose(Session s, CloseReason r) { /* ... */ }

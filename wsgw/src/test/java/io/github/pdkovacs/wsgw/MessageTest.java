@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class MessageTest {
 
-    private static final Logger log = LoggerFactory.getLogger(MessageTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(MessageTest.class);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 
@@ -43,6 +43,8 @@ public class MessageTest {
 
         Session session = wsTestClient.websocketClientSession();
         session.getBasicRemote().sendText(messageToApp);
+
+        logger.debug("Message sent to app over {}: {}", connId, messageToApp);
 
         String msgInApp = wsgwTestContext.fakeApp.getConnection(connId).getMessages().take();
         assertThat(msgInApp).isEqualTo(messageToApp);

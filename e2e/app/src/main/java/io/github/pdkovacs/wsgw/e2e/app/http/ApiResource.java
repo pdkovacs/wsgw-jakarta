@@ -2,13 +2,13 @@ package io.github.pdkovacs.wsgw.e2e.app.http;
 
 import io.github.pdkovacs.wsgw.e2e.app.common.dto.E2EMessage;
 import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnections;
+import io.github.pdkovacs.wsgw.e2e.app.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.e2e.app.push.WsgwClient;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.core.Response;
-import org.jboss.logging.Logger;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 @ApplicationScoped
 public class ApiResource {
 
-    private static final Logger log = Logger.getLogger(ApiResource.class);
+    private static final CtxLogger log = CtxLogger.of(ApiResource.class);
     private static final int MAX_CONCURRENT_RECIPIENT_SENDS = 4;
 
     private final WsConnections wsConnections;
@@ -46,7 +46,7 @@ public class ApiResource {
     @POST
     @Path("/messages-in-bulk")
     public Response bulk(List<E2EMessage> messages) {
-        log.debugf("sending messages count=%d", messages.size());
+        log.debug("sending messages count={}", messages.size());
         for (E2EMessage message : messages) {
             sendToRecipients(message);
         }
@@ -70,7 +70,8 @@ public class ApiResource {
                     wsConnections.removeConnection(userId, connId);
                 }
             } catch (Exception e) {
-                log.errorf(e, "failed to push message user=%s connid=%s", userId, connId);
+                log.with("userId", userId).with("connId", connId)
+                        .error("failed to push message", e);
             }
         }
     }

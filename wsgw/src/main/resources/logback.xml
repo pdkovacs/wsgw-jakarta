@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- JSON to stdout. LogstashEncoder maps SLF4J key/value pairs (CtxLogger
+         bound fields) and MDC entries to top-level JSON properties. -->
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+
+    <logger name="io.github.pdkovacs.wsgw" level="DEBUG"/>
+
+</configuration>

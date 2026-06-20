@@ -34,7 +34,13 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <version>1.5.13</version>
+            <version>1.5.25</version>
+        </dependency>
+        <!-- JSON encoder that serializes SLF4J key/value pairs (and MDC) as top-level fields -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>8.1</version>
         </dependency>
         <dependency>
             <groupId>jakarta.platform</groupId>

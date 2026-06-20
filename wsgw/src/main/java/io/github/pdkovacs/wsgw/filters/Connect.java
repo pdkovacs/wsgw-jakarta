@@ -3,13 +3,12 @@ package io.github.pdkovacs.wsgw.filters;
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.RequestToApp;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.http.HttpResponse;
@@ -18,7 +17,7 @@ import java.util.Map;
 
 public class Connect extends HttpFilter {
 
-    private static final Logger log = LoggerFactory.getLogger(Connect.class);
+    private static final CtxLogger log = CtxLogger.of(Connect.class);
 
     private final String appBaseUrl;
     private final ConnectionIdProvider connectionIdProvider;
@@ -62,9 +61,10 @@ public class Connect extends HttpFilter {
     // and returns the HTTP status the backend answered with. 204 means accepted.
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
-        log.debug("About to register {} with app at {}", connectionId, appBaseUrl);
+        var log = Connect.log.with("connId", connectionId).with("appBaseUrl", appBaseUrl);
+        log.debug("About to register with app");
         HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders, AppPaths.CONNECT_FROM_WSGW + "/" + connectionId , "GET", null);
-        log.debug("Registered {} with app at {}: status {}", connectionId, appBaseUrl, response.statusCode());
+        log.debug("Registered with app: status {}", response.statusCode());
         return response.statusCode();
     }
 }

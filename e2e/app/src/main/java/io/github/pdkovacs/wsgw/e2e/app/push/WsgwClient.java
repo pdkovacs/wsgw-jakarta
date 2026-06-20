@@ -5,9 +5,9 @@ import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.e2e.app.common.dto.E2EMessage;
 import io.github.pdkovacs.wsgw.e2e.app.common.wsgw.WsgwLocator;
 import io.github.pdkovacs.wsgw.e2e.app.config.AppConfig;
+import io.github.pdkovacs.wsgw.e2e.app.logging.CtxLogger;
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Singleton;
-import org.jboss.logging.Logger;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,7 +18,7 @@ import java.time.Duration;
 @Singleton
 public class WsgwClient {
 
-    private static final Logger log = Logger.getLogger(WsgwClient.class);
+    private static final CtxLogger log = CtxLogger.of(WsgwClient.class);
 
     private final AppConfig appConfig;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -52,7 +52,7 @@ public class WsgwClient {
                 .build();
 
         HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-        log.debugf("POST %s -> %d", url, response.statusCode());
+        log.with("connId", connectionId).debug("POST {} -> {}", url, response.statusCode());
         return response.statusCode();
     }
 }

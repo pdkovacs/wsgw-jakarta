@@ -53,7 +53,7 @@ public class FromWsgwFilters {
             } else {
                 chain.doFilter(req, res);
             }
-            return;   // fully handled; don't fall through to DefaultServlet (it would 404 /connect)
+            return; // fully handled; don't fall through to DefaultServlet (it would 404 /connect)
         }
     }
 
@@ -68,7 +68,8 @@ public class FromWsgwFilters {
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
             var path = req.getServletPath();
-            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(), path);
+            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
+                    path);
 
             var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
             connectionEndpointMap.put(connectionId, new WsgwConnectionEndpoint(connectionId));
@@ -87,13 +88,13 @@ public class FromWsgwFilters {
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
             var path = req.getServletPath();
-            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(), path);
+            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
+                    path);
 
             var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
-            var connection = connectionEndpointMap.get(connectionId);
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
             logger.debug("message received: {}", message);
-            connection.messages.add(message);
+            connectionEndpointMap.get(connectionId).messages.add(message);
             logger.debug("message recorded: {}", message);
         }
     }

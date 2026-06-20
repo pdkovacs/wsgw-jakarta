@@ -50,7 +50,7 @@ public class RequestToApp {
 
     public static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders,
                                    String appPath, String reqMethod, String body) throws IOException, InterruptedException {
-        log.debug("Building request {} to app at {}", appPath);
+        log.debug("Building request to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
         log.debug("Setting request method ({})", appPath);

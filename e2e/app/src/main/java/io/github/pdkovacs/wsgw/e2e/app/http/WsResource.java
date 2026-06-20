@@ -3,19 +3,19 @@ package io.github.pdkovacs.wsgw.e2e.app.http;
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnections;
+import io.github.pdkovacs.wsgw.e2e.app.logging.CtxLogger;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.Response;
-import org.jboss.logging.Logger;
 
 import java.util.Map;
 
 @Path("/ws")
 public class WsResource {
 
-    private static final Logger log = Logger.getLogger(WsResource.class);
+    private static final CtxLogger log = CtxLogger.of(WsResource.class);
 
     private static final String CONN_ID_PATH_PARAM_NAME = "connId";
 
@@ -36,10 +36,11 @@ public class WsResource {
             return Response.status(Response.Status.FORBIDDEN).build();
         }
         if (connId == null || connId.isBlank()) {
-            log.errorf("No connection-id header %s", WsgwPaths.CONNECTION_ID_HEADER_KEY);
+            log.error("No connection-id header {}", WsgwPaths.CONNECTION_ID_HEADER_KEY);
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        log.debugf("incoming connection request user=%s connid=%s", userId, connId);
+        var log = WsResource.log.with("userId", userId).with("connId", connId);
+        log.debug("incoming connection request");
         wsConnections.addConnection(userId, connId);
         return Response.ok().build();
     }
@@ -52,13 +53,15 @@ public class WsResource {
             log.info("incoming ws disconnection request without userId");
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
+        var log = WsResource.log.with("userId", userId);
         if (connId == null || connId.isBlank()) {
-            log.infof("user=%s incoming ws disconnection request without connection-id", userId);
+            log.info("incoming ws disconnection request without connection-id");
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        log.debugf("incoming disconnection request user=%s connid=%s", userId, connId);
+        log = log.with("connId", connId);
+        log.debug("incoming disconnection request");
         if (!wsConnections.removeConnection(userId, connId)) {
-            log.infof("user=%s has no ws connections", userId);
+            log.info("user has no ws connections");
         }
         return Response.ok().build();
     }
@@ -71,7 +74,7 @@ public class WsResource {
             log.info("send message request without connection-id");
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        log.debugf("message received connid=%s body=%s", connId, body);
+        log.with("connId", connId).debug("message received body={}", body);
         return Response.ok().build();
     }
 }
