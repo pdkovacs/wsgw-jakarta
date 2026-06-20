@@ -4,3 +4,8 @@ target/
 *.iml
 .vscode/
 .DS_Store
+
+# eclipse
+.settings
+.classpath
+.project
