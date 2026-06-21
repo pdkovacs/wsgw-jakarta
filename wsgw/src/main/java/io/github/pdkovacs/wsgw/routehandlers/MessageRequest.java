@@ -24,6 +24,11 @@ public class MessageRequest extends HttpFilter {
     @Override
     protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException {
+        if (!req.getServletPath().startsWith(WsgwPaths.MESSAGE_FROM_APP)) {
+            logger.error(getFilterName(), "Wrong path: %s".formatted(req.getServletPath()));
+            res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        }
+
         var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
         var log = logger.with("connId", connectionId);
         try {

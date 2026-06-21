@@ -25,6 +25,11 @@ public class DisconnectRequest extends HttpFilter {
     protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException, ServletException {
         logger.debug("/disconnect request {}");
+
+        if (!req.getServletPath().startsWith(WsgwPaths.DISCONNECT_FROM_APP)) {
+            res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        }
+
         var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
         var log = logger.with("connId", connectionId);
         try {

@@ -1,7 +1,9 @@
 package io.github.pdkovacs.wsgw.fake.app;
 
+import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.ConnectionIdExtractor;
 import io.github.pdkovacs.wsgw.Message;
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -19,7 +21,8 @@ import java.util.stream.Collectors;
 public class FromWsgwFilters {
     static void addFilter(Context ctx, HttpFilter filter, String urlPattern) {
         // The filter name only has to be unique within the context; the URL pattern
-        // already is, so use it as the name and avoid a redundant, easily-mismatched arg.
+        // already is, so use it as the name and avoid a redundant, easily-mismatched
+        // arg.
         FilterDef fd = new FilterDef();
         fd.setFilterName(urlPattern);
         fd.setFilter(filter);
@@ -67,6 +70,9 @@ public class FromWsgwFilters {
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
+            if (!req.getServletPath().startsWith(AppPaths.CONNECT_FROM_WSGW)) {
+                res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            }
             var path = req.getServletPath();
             logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(),
                     req.getRequestURI(),
@@ -90,6 +96,9 @@ public class FromWsgwFilters {
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
+            if (!req.getServletPath().startsWith(AppPaths.DISCONNECTED_FROM_WSGW)) {
+                res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            }
             var path = req.getServletPath();
             logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(),
                     req.getRequestURI(),
@@ -117,6 +126,9 @@ public class FromWsgwFilters {
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
+            if (!req.getServletPath().startsWith(AppPaths.MESSAGE_FROM_WSGW)) {
+                res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            }
             var path = req.getServletPath();
             logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
                     path);

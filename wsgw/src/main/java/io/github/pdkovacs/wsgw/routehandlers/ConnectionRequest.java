@@ -2,6 +2,7 @@ package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.ConnectionIdProvider;
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appside.RequestToApp;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
@@ -30,6 +31,11 @@ public class ConnectionRequest extends HttpFilter {
     @Override
     protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException, ServletException {
+
+        String path = req.getServletPath();
+        if (!path.startsWith(WsgwPaths.CONNECT_FROM_CLIENT)) {
+            res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        }
 
         var reqHeaders = RequestToApp.getRequestHeaders(req);
 
