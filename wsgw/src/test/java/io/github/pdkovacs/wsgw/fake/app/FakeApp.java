@@ -17,14 +17,14 @@ public class FakeApp {
 
     private Tomcat tomcat;
 
-    private final ConcurrentMap<String, WsgwConnectionEndpoint> connectionEndpointMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap = new ConcurrentHashMap<>();
 
     public int start(Path tomcatBaseDir, String[] expectedApiKey) {
         try {
             tomcat = new Tomcat();
             tomcat.setBaseDir(tomcatBaseDir.resolve("appMock").toAbsolutePath().toString());
             tomcat.setPort(0);
-            tomcat.getConnector().setProperty("useVirtualThreads", "true");  // ← keeps the VT-blocking model
+            tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
             Context ctx = tomcat.addContext("", null);
 
@@ -32,9 +32,13 @@ public class FakeApp {
             Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
             ctx.addServletMappingDecoded("/", "default");
 
-            FromWsgwFilters.addFilter(ctx, "authn", new FromWsgwFilters.Authentication(expectedApiKey), "/*");
-            FromWsgwFilters.addFilter(ctx, "connect", new FromWsgwFilters.Connect(connectionEndpointMap), AppPaths.CONNECT_FROM_WSGW + "/*");
-            FromWsgwFilters.addFilter(ctx, "message", new FromWsgwFilters.Message(connectionEndpointMap), AppPaths.MESSAGE_FROM_WSGW + "/*");
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Authentication(expectedApiKey), "/*");
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Connect(connectionEndpointMap),
+                    AppPaths.CONNECT_FROM_WSGW + "/*");
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Disconnect(connectionEndpointMap),
+                    AppPaths.DISCONNECTED_FROM_WSGW + "/*");
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.ReceiveMessage(connectionEndpointMap),
+                    AppPaths.MESSAGE_FROM_WSGW + "/*");
 
             tomcat.start();
             var appPort = tomcat.getConnector().getLocalPort();
@@ -47,7 +51,7 @@ public class FakeApp {
         }
     }
 
-    public WsgwConnectionEndpoint getConnection(String id) {
+    public WsgwEndpoint getConnection(String id) {
         return this.connectionEndpointMap.get(id);
     }
 

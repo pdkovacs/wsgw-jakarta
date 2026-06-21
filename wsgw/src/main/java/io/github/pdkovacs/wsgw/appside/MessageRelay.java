@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.appside;
 
 import java.util.List;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.clientside;
 
 import jakarta.websocket.Session;
 

@@ -3,15 +3,17 @@ package io.github.pdkovacs.wsgw.fake.app;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-public class WsgwConnectionEndpoint {
-    final BlockingQueue<String> messages =  new LinkedBlockingQueue<>();
+import io.github.pdkovacs.wsgw.Message;
+
+public class WsgwEndpoint {
+    final BlockingQueue<Message> messages = new LinkedBlockingQueue<>();
     final String connectionId;
 
-    public WsgwConnectionEndpoint(String connectionId) {
+    public WsgwEndpoint(String connectionId) {
         this.connectionId = connectionId;
     }
 
-    public BlockingQueue<String> getMessages() {
+    public BlockingQueue<Message> getMessageInbox() {
         return messages;
     }
 }

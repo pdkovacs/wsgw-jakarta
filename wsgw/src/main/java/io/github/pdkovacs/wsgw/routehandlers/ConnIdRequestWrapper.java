@@ -1,6 +1,5 @@
-package io.github.pdkovacs.wsgw.filters;
+package io.github.pdkovacs.wsgw.routehandlers;
 
-import io.github.pdkovacs.wsgw.RequestToApp;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
@@ -33,7 +32,7 @@ public class ConnIdRequestWrapper extends HttpServletRequestWrapper {
     }
 
     @Override
-    public Enumeration<String> getHeaderNames() {   // ← without this, the id is invisible to modifyHandshake
+    public Enumeration<String> getHeaderNames() { // ← without this, the id is invisible to modifyHandshake
         var names = new ArrayList<>(Collections.list(super.getHeaderNames()));
         names.add(WsgwPaths.CONNECTION_ID_HEADER_KEY);
         return Collections.enumeration(names);

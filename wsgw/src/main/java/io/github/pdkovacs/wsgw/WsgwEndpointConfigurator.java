@@ -6,20 +6,22 @@ import jakarta.websocket.server.ServerEndpointConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.github.pdkovacs.wsgw.appside.ToApp;
+import io.github.pdkovacs.wsgw.clientside.SessionRegistrar;
+
 import java.util.List;
 
 public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator {
 
     private static final Logger logger = LoggerFactory.getLogger(WsgwEndpointConfigurator.class);
 
-    private final MessageRelay messageRelay;
+    private final ToApp toAppRelay;
     private final SessionRegistrar registerSession;
 
-    public WsgwEndpointConfigurator(MessageRelay messageRelay, SessionRegistrar registerSession) {
-        this.messageRelay = messageRelay;
+    public WsgwEndpointConfigurator(ToApp messageRelay, SessionRegistrar registerSession) {
+        this.toAppRelay = messageRelay;
         this.registerSession = registerSession;
     }
-
 
     @Override
     public void modifyHandshake(ServerEndpointConfig sec, HandshakeRequest req, HandshakeResponse res) {
@@ -27,7 +29,7 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
         var id = req.getHeaders().getOrDefault(WsgwPaths.CONNECTION_ID_HEADER_KEY, List.of("?")).getFirst();
         sec.getUserProperties().put("connectionId", id);
         sec.getUserProperties().put("connectHeaders", req.getHeaders());
-        res.getHeaders().put(WsgwPaths.CONNECTION_ID_HEADER_KEY, List.of(id));  // echo on the 101 response
+        res.getHeaders().put(WsgwPaths.CONNECTION_ID_HEADER_KEY, List.of(id)); // echo on the 101 response
         logger.debug("modifyHandshake completed");
     }
 
@@ -39,7 +41,7 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
             // WsgwEndpoint is the only endpoint currently implemented
             throw new IllegalArgumentException("Unexpected endpoint type: " + clazz);
         }
-        T endpointInstance = clazz.cast(new WsgwEndpoint(registerSession, messageRelay));
+        T endpointInstance = clazz.cast(new WsgwEndpoint(registerSession, toAppRelay));
         logger.debug("getEndpointInstance completed");
         return endpointInstance;
     }

@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.appside;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -35,7 +35,6 @@ public class RequestToApp {
     // of being built up and torn down per request.
     public static HttpClient appClient = createHttpClient();
 
-
     public static HttpClient createHttpClient() {
         return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -49,13 +48,14 @@ public class RequestToApp {
     }
 
     public static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders,
-                                   String appPath, String reqMethod, String body) throws IOException, InterruptedException {
+            String appPath, String reqMethod, String body) throws IOException, InterruptedException {
         log.debug("Building request to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
         log.debug("Setting request method ({})", appPath);
         if (reqMethod != null) {
-            requestBuilder.method(reqMethod, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
+            requestBuilder.method(reqMethod,
+                    body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
         }
 
         log.debug("Assembling headers... ({}): {}", appPath, reqHeaders);

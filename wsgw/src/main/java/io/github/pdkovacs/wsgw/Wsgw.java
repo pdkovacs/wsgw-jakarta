@@ -1,8 +1,11 @@
 package io.github.pdkovacs.wsgw;
 
-import io.github.pdkovacs.wsgw.filters.Connect;
-import io.github.pdkovacs.wsgw.filters.FromAppMessage;
+import io.github.pdkovacs.wsgw.appside.ToApp;
+import io.github.pdkovacs.wsgw.clientside.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
+import io.github.pdkovacs.wsgw.routehandlers.DisconnectRequest;
+import io.github.pdkovacs.wsgw.routehandlers.MessageRequest;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -12,7 +15,6 @@ import org.apache.tomcat.util.descriptor.web.FilterDef;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.websocket.server.WsSci;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Set;
 
@@ -46,7 +48,7 @@ public class Wsgw {
         tomcat = new Tomcat();
         tomcat.setBaseDir(baseDir.toAbsolutePath().toString());
         tomcat.setPort(0);
-        tomcat.getConnector().setProperty("useVirtualThreads", "true");  // ← keeps the VT-blocking model
+        tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
         Context ctx = tomcat.addContext("", null);
 
@@ -62,44 +64,26 @@ public class Wsgw {
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections);
 
-        // turn on WS support + register the endpoint before the context finishes starting
+        var ToApp = new ToApp(appBaseUrl);
+
+        // turn on WS support + register the endpoint before the context finishes
+        // starting
         ctx.addServletContainerInitializer(new WsSci() {
             @Override
             public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
-                ctx.addListener(new WsgwWsListener(createMessageRelay(), wsConnections));
+                ctx.addListener(new WsgwWsListener(ToApp, wsConnections));
                 super.onStartup(clazzes, ctx);
             }
         }, null);
-
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();
     }
 
-    private void addFilters(Context ctx, MessagePusher messagePusher) {
-        addFilter(ctx, "connect", new Connect(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
-        addFilter(ctx, "message", new FromAppMessage(messagePusher), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
-    }
-
-    private MessageRelay createMessageRelay() {
-        return (connectHeaders, connectionId, msg) -> {
-            var log = logger.with("connId", connectionId);
-            try {
-                log.debug("Waiting for futureConnectReqHeaders to resolve...");
-                RequestToApp.send(appBaseUrl, connectHeaders, AppPaths.MESSAGE_FROM_WSGW + "/" + connectionId, "POST", msg);
-                log.debug("Message sent to app");
-            } catch (InterruptedException e) {
-                log.warn("Interrupted while waiting for request to connect");
-                throw new RuntimeException(e);
-            } catch (IOException e) {
-                log.warn("IOException while waiting for request to connect", e);
-                throw new RuntimeException(e);
-            } catch (Exception e) {
-                log.error("Exception while waiting for request to connect", e);
-                throw new RuntimeException(e);
-            }
-        };
-
+    private void addFilters(Context ctx, WsConnections wsConnections) {
+        addFilter(ctx, new ConnectionRequest(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
+        addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }
 
     public void stop() {
@@ -113,13 +97,15 @@ public class Wsgw {
         }
     }
 
-    static void addFilter(Context ctx, String name, HttpFilter filter, String urlPattern) {
+    static void addFilter(Context ctx, HttpFilter filter, String urlPattern) {
+        // The filter name only has to be unique within the context; the URL pattern
+        // already is, so use it as the name and avoid a redundant, easily-mismatched arg.
         FilterDef fd = new FilterDef();
-        fd.setFilterName(name);
+        fd.setFilterName(urlPattern);
         fd.setFilter(filter);
         ctx.addFilterDef(fd);
         FilterMap fm = new FilterMap();
-        fm.setFilterName(name);
+        fm.setFilterName(urlPattern);
         fm.addURLPattern(urlPattern);
         ctx.addFilterMap(fm);
     }

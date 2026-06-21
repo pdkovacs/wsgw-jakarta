@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 public class MessageTest {
 
@@ -34,7 +35,7 @@ public class MessageTest {
 
     @Test
     @Timeout(3)
-    void canRelayAMessageToApp() throws Exception {
+    void relaysAMessageToApp() throws Exception {
         URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
         String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
         var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
@@ -46,26 +47,44 @@ public class MessageTest {
 
         logger.debug("Message sent to app over {}: {}", connId, messageToApp);
 
-        String msgInApp = wsgwTestContext.fakeApp.getConnection(connId).getMessages().take();
-        assertThat(msgInApp).isEqualTo(messageToApp);
+        Message msgInApp = wsgwTestContext.getAppInbox(connId).take();
+        String text = switch (msgInApp) {
+            case Message.Text(String t) -> t;
+            case Message.EndOfStream _ ->
+                fail("Expected message %s, got EndOfStream".formatted(messageToApp));
+        };
+        assertThat(text).isEqualTo(messageToApp);
     }
 
     @Test
     @Timeout(3)
-    void canRelayAMessageFromApp() throws Exception {
-        URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
-        String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
+    void sendsAMessageToClient() throws Exception {
+        try {
+            URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
+            String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
+            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
 
-        final String messageFromApp = "Hello from app";
-        var msgToClientUrl = wsgwTestContext.getWsgwUrl("http", "/%s/%s".formatted(WsgwPaths.MESSAGE_FROM_APP, connId));
-        HttpRequest request = HttpRequest.newBuilder(msgToClientUrl)
-                .POST(HttpRequest.BodyPublishers.ofString(messageFromApp))
-                .build();
-        wsgwTestContext.httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            final String messageFromApp = "Hello from app";
+            logger.debug("Assembling request...");
+            var msgToClientUrl = wsgwTestContext.getWsgwUrl("http", "/%s/%s".formatted(WsgwPaths.MESSAGE_FROM_APP, connId));
+            HttpRequest request = HttpRequest.newBuilder(msgToClientUrl)
+                    .POST(HttpRequest.BodyPublishers.ofString(messageFromApp))
+                    .build();
+            logger.debug("Request assembled");
+            wsgwTestContext.httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            logger.debug("Request sent");
 
-        String message = wsTestClient.messageInbox().take();
-        assertThat(message).isEqualTo(messageFromApp);
+            var msgInApp = wsTestClient.messageInbox().take();
+            String text = switch (msgInApp) {
+                case Message.Text(String t) -> t;
+                case Message.EndOfStream _ ->
+                    fail("Expected message %s, got EndOfStream".formatted(msgInApp));
+            };
+            assertThat(text).isEqualTo(messageFromApp);
+        } catch (Exception e) {
+            logger.error("Exception occurred during sending a message", e);
+            throw new RuntimeException(e);
+        }
     }
 
 }

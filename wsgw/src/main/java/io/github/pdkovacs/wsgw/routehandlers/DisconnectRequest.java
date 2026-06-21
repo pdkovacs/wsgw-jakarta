@@ -1,6 +1,7 @@
-package io.github.pdkovacs.wsgw.filters;
+package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.*;
+import io.github.pdkovacs.wsgw.clientside.SessionCloser;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -9,29 +10,27 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
-import java.util.stream.Collectors;
 
-public class FromAppMessage extends HttpFilter {
+public class DisconnectRequest extends HttpFilter {
 
-    private static final CtxLogger log = CtxLogger.of(FromAppMessage.class);
+    private static final CtxLogger logger = CtxLogger.of(DisconnectRequest.class);
 
-    private final MessagePusher messagePusher;
+    private final SessionCloser sessionCloser;
 
-    public FromAppMessage(MessagePusher messagePusher) {
-        this.messagePusher = messagePusher;
+    public DisconnectRequest(SessionCloser sessionCloser) {
+        this.sessionCloser = sessionCloser;
     }
 
     @Override
     protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException, ServletException {
+        logger.debug("/disconnect request {}");
         var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
-        var log = FromAppMessage.log.with("connId", connectionId);
+        var log = logger.with("connId", connectionId);
         try {
-            var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
-            messagePusher.sendTo(connectionId, message);   // blocking; cheap on a virtual thread
-            log.debug("Message pushed to client");
+            sessionCloser.close(connectionId);
         } catch (Exception e) {
-            log.warn("Failed to push message to client", e);
+            log.warn("Failed to disconnect client", e);
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");
         }
     }
