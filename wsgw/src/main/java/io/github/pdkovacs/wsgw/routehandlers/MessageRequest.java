@@ -34,7 +34,7 @@ public class MessageRequest extends HttpFilter {
         try {
             log.debug("Pushing message to client");
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
-            messagePusher.messageTo(connectionId, message); // blocking; cheap on a virtual thread
+            messagePusher.push(connectionId, message); // blocking; cheap on a virtual thread
             log.debug("Message pushed to client");
         } catch (Exception e) {
             log.warn("Failed to push message to client", e);
