@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<profiles version="23">
+  <profile kind="CodeFormatterProfile" name="wsgw" version="23">
+    <!-- Wrap lines at 120 characters -->
+    <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="140"/>
+    <!-- Keep empty {} together on one line instead of splitting the braces -->
+    <setting id="org.eclipse.jdt.core.formatter.keep_code_block_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_method_body_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_type_declaration_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_anonymous_type_declaration_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_enum_declaration_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_enum_constant_declaration_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_record_declaration_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_record_constructor_on_one_line" value="one_line_if_empty"/>
+    <setting id="org.eclipse.jdt.core.formatter.keep_lambda_body_block_on_one_line" value="one_line_if_empty"/>
+  </profile>
+</profiles>

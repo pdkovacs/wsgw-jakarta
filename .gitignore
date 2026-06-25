@@ -2,10 +2,13 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 .idea/
 *.iml
-.vscode/
 .DS_Store
 
 # eclipse
-.settings
 .classpath
 .project
+
+# eclipse .settings: ignore everything, keep only the shared compiler & encoding config
+**/.settings/*
+!**/.settings/org.eclipse.jdt.core.prefs
+!**/.settings/org.eclipse.core.resources.prefs
