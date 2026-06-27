@@ -66,35 +66,5 @@
 
     <build>
         <finalName>wsgw</finalName>
-        <plugins>
-            <!-- StructuredTaskScope (JEP 505) is a preview API in JDK 25. Enable preview
-                 features for tests ONLY: test compilation and the surefire test JVM.
-                 Main compilation is left untouched so the production WAR carries no
-                 preview-marked classfiles and Tomcat needs no preview flag at runtime. -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>default-testCompile</id>
-                        <goals>
-                            <goal>testCompile</goal>
-                        </goals>
-                        <configuration>
-                            <compilerArgs>
-                                <arg>--enable-preview</arg>
-                            </compilerArgs>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <argLine>--enable-preview</argLine>
-                </configuration>
-            </plugin>
-        </plugins>
     </build>
 </project>
