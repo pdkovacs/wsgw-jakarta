@@ -22,31 +22,25 @@ public class Wsgw {
 
     private static final CtxLogger logger = CtxLogger.of(Wsgw.class);
 
-    private final String appBaseUrl;
-    // Where Tomcat keeps its scratch/work area. Without this, embedded Tomcat
-    // defaults to a "tomcat.<port>" directory under the process working dir,
-    // littering the source tree.
-    private final Path baseDir;
+    private final Configuration configuration;
     private final ConnectionIdProvider connectionIdProvider;
 
     private Tomcat tomcat;
 
-    public Wsgw(String appBaseUrl) {
+    public Wsgw(Configuration configuration) {
         // Production default: the JVM temp dir is always present and writable,
         // and there is no Maven "target/" to rely on outside the build.
-        this(appBaseUrl, Path.of(System.getProperty("java.io.tmpdir"), "wsgw-tomcat"), ConnectionIdProvider.DEFAULT);
+        this(configuration, ConnectionIdProvider.DEFAULT);
     }
 
-    public Wsgw(String appBaseUrl, Path baseDir, ConnectionIdProvider connectionIdProvider) {
-        logger.debug("appBaseUrl: {}, baseDir: {}", appBaseUrl, baseDir);
-        this.appBaseUrl = appBaseUrl;
-        this.baseDir = baseDir;
+    public Wsgw(Configuration configuration, ConnectionIdProvider connectionIdProvider) {
+        this.configuration = configuration;
         this.connectionIdProvider = connectionIdProvider;
     }
 
     public int start() throws Exception {
         tomcat = new Tomcat();
-        tomcat.setBaseDir(baseDir.toAbsolutePath().toString());
+        tomcat.setBaseDir(configuration.getBaseDir().toAbsolutePath().toString());
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
@@ -57,14 +51,14 @@ public class Wsgw {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
-        WsConnections wsConnections = new WsConnections();
+        WsConnections wsConnections = new WsConnections(this.configuration.getPushToClientWaitTimeout());
 
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections);
 
-        var ToApp = new ToApp(appBaseUrl);
+        var ToApp = new ToApp(configuration.getAppBaseUrl());
 
         // turn on WS support + register the endpoint before the context finishes
         // starting
@@ -81,7 +75,7 @@ public class Wsgw {
     }
 
     private void addFilters(Context ctx, WsConnections wsConnections) {
-        addFilter(ctx, new ConnectionRequest(appBaseUrl, this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx, new ConnectionRequest(configuration.getAppBaseUrl(), this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }

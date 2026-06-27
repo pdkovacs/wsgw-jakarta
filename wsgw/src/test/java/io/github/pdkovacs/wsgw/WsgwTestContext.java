@@ -30,7 +30,7 @@ public class WsgwTestContext {
         int appPort = fakeApp.start(tempDir, apiKey);
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
 
-        wsgw = new Wsgw(appBaseUrl, tempDir.resolve("wsgw"), connectionIdGeneratorMock);
+        wsgw = new Wsgw(new Configuration(appBaseUrl, tempDir.resolve("wsgw")), connectionIdGeneratorMock);
         wsgwBaseUrl = URI.create("ws://localhost:%d".formatted(wsgw.start()));
     }
 

@@ -34,8 +34,10 @@ public class MessageRequest extends HttpFilter {
         try {
             log.debug("Pushing message to client");
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
-            messagePusher.push(connectionId, message); // blocking; cheap on a virtual thread
+            messagePusher.push(connectionId, message);
             log.debug("Message pushed to client");
+        } catch (SendBackpressureException sendBackpressure) {
+            res.sendError(429 /*Too Many Requests*/, "Retry later");
         } catch (Exception e) {
             log.warn("Failed to push message to client", e);
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");

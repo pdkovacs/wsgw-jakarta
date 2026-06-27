@@ -9,7 +9,7 @@ public class Main {
         Logger logger = LoggerFactory.getLogger("click.bitkit.wsgw.jetty");
 
         System.out.println("Hello World!");
-        var wsgw = new Wsgw(System.getenv("APP_BASE_URL"));
+        var wsgw = new Wsgw(new Configuration(System.getenv("APP_BASE_URL"), null));
         int port;
         try {
             port = wsgw.start();
