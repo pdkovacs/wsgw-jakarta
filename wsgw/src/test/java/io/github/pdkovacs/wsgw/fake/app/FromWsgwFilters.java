@@ -19,6 +19,10 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 public class FromWsgwFilters {
+    interface ConnectionEndpointRegistrar {
+        void register(WsgwEndpoint endpoint);
+    }
+
     static void addFilter(Context ctx, HttpFilter filter, String urlPattern) {
         // The filter name only has to be unique within the context; the URL pattern
         // already is, so use it as the name and avoid a redundant, easily-mismatched
@@ -34,7 +38,7 @@ public class FromWsgwFilters {
     }
 
     public static class Authentication extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of(Connect.class);
+        private static final CtxLogger logger = CtxLogger.of("FakeApp." + Authentication.class.getSimpleName());
 
         private final String[] expectedApiKey;
 
@@ -45,13 +49,13 @@ public class FromWsgwFilters {
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
             var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
-            logger.debug("MockAppServer: incoming request with connectionID {}", connectionId);
+            logger.debug("incoming request with connectionID {}", connectionId);
             String apiKey = req.getHeader(this.expectedApiKey[0]);
             if (apiKey == null) {
-                logger.debug("MockAppServer: missing api key {}", expectedApiKey[0]);
+                logger.debug("missing api key {}", expectedApiKey[0]);
                 res.setStatus(401);
             } else if (!apiKey.equals(expectedApiKey[1])) {
-                logger.debug("MockAppServer: invalid api key value for {}: {}", expectedApiKey[0], expectedApiKey[1]);
+                logger.debug("invalid api key value for {}: {}", expectedApiKey[0], expectedApiKey[1]);
                 res.setStatus(401);
             } else {
                 chain.doFilter(req, res);
@@ -61,11 +65,11 @@ public class FromWsgwFilters {
     }
 
     public static class Connect extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of(Connect.class);
-        private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap;
+        private static final CtxLogger logger = CtxLogger.of("FakeApp." + Connect.class.getSimpleName());
+        private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
 
-        public Connect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap) {
-            this.connectionEndpointMap = connectionEndpointMap;
+        public Connect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar) {
+            this.connectionEndpointRegistrar = connectionEndpointRegistrar;
         }
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
@@ -74,24 +78,24 @@ public class FromWsgwFilters {
                 res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }
             var path = req.getServletPath();
-            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(),
+            logger.debug("incoming request {} {}, servletPath: {}", req.getMethod(),
                     req.getRequestURI(),
                     path);
 
             var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 2);
-            connectionEndpointMap.put(connectionId, new WsgwEndpoint(connectionId));
-            logger.debug("Endpoint mapped to {}", connectionId);
+            connectionEndpointRegistrar.put(connectionId, new WsgwEndpoint(connectionId));
+            logger.debug("endpoint mapped to {}", connectionId);
 
             res.setStatus(HttpServletResponse.SC_NO_CONTENT);
         }
     }
 
     public static class Disconnect extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of(Connect.class);
-        private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap;
+        private static final CtxLogger logger = CtxLogger.of("FakeApp." + Disconnect.class.getSimpleName());
+        private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
 
-        public Disconnect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap) {
-            this.connectionEndpointMap = connectionEndpointMap;
+        public Disconnect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar) {
+            this.connectionEndpointRegistrar = connectionEndpointRegistrar;
         }
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
@@ -100,12 +104,12 @@ public class FromWsgwFilters {
                 res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }
             var path = req.getServletPath();
-            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(),
+            logger.debug("incoming request {} {}, servletPath: {}", req.getMethod(),
                     req.getRequestURI(),
                     path);
 
             var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 2);
-            var wsgwEndpoint = connectionEndpointMap.remove(connectionId);
+            var wsgwEndpoint = connectionEndpointRegistrar.get(connectionId);
             try {
                 wsgwEndpoint.messages.put(Message.EndOfStream.INSTANCE);
                 res.setStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -117,11 +121,11 @@ public class FromWsgwFilters {
     }
 
     public static class ReceiveMessage extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of(Connect.class);
-        private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap;
+        private static final CtxLogger logger = CtxLogger.of("FakeApp." + ReceiveMessage.class.getSimpleName());
+        private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
 
-        public ReceiveMessage(ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap) {
-            this.connectionEndpointMap = connectionEndpointMap;
+        public ReceiveMessage(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar) {
+            this.connectionEndpointRegistrar = connectionEndpointRegistrar;
         }
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
@@ -130,7 +134,7 @@ public class FromWsgwFilters {
                 res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }
             var path = req.getServletPath();
-            logger.debug("MockAppServer: incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
+            logger.debug("incoming request {} {}, servletPath: {}", req.getMethod(), req.getRequestURI(),
                     path);
 
             var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 2);
@@ -138,7 +142,7 @@ public class FromWsgwFilters {
             var cmlogger = logger.with("connectionId", connectionId).with("message", message);
             cmlogger.debug("message received", message);
             try {
-                connectionEndpointMap.get(connectionId).messages.put(new Message.Text(message));
+                connectionEndpointRegistrar.get(connectionId).messages.put(new Message.Text(message));
             } catch (InterruptedException e) {
                 cmlogger.warn("Interrupted while trying to add message to inbox", e);
             }

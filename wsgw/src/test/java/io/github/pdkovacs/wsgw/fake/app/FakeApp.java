@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -52,7 +53,11 @@ public class FakeApp {
     }
 
     public WsgwEndpoint getConnection(String id) {
-        return this.connectionEndpointMap.get(id);
+        var endpoint = this.connectionEndpointMap.get(id);
+        if (endpoint == null) {
+            throw new NoSuchElementException("No endpoint for connection with id " + id);
+        }
+        return endpoint;
     }
 
     public void stop() throws LifecycleException {

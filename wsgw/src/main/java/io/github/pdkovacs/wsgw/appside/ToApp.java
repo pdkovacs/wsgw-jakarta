@@ -29,7 +29,7 @@ public class ToApp {
             String msg) {
         var log = logger.with("path", pathOnApp).with("connId", connectionId);
         try {
-            log.debug("Waiting for futureConnectReqHeaders to resolve...");
+            log.debug("Sending request to app...");
             RequestToApp.send(appBaseUrl, connectHeaders, pathOnApp + "/" + connectionId, "POST",
                     msg);
             log.debug("Request sent to app");

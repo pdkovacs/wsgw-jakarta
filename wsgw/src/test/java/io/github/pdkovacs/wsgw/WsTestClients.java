@@ -8,10 +8,12 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websocketClientSession,
@@ -30,7 +32,7 @@ record WebsocketTestClient(TestClientEndpoint testClientEndpoint, Session websoc
 class WsTestClients implements AutoCloseable {
     final private static Logger logger = LoggerFactory.getLogger(WsTestClients.class);
 
-    private final List<WebsocketTestClient> clients = new ArrayList<>();
+    private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
 
     WebsocketTestClient connect(URI uri, String[] apiKey) throws Exception {
         URI connectURI = URI.create(uri.toString().concat(WsgwPaths.CONNECT_FROM_CLIENT));
@@ -81,6 +83,10 @@ class WsTestClients implements AutoCloseable {
         var wsTestClient = new WebsocketTestClient(testClientEndpoint, session, futureConnectionId.get(), messageInbox);
         clients.add(wsTestClient);
         return wsTestClient;
+    }
+
+    public List<WebsocketTestClient> getClients() {
+        return clients;
     }
 }
 
