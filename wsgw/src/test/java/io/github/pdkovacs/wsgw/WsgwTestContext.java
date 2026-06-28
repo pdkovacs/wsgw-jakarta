@@ -17,12 +17,13 @@ public class WsgwTestContext {
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = RequestToApp.createHttpClient();
+    final HttpClient http2Client = RequestToApp.createHttpClient(HttpClient.Version.HTTP_2);
     final String[] apiKey = new String[] { "XKEY", "asdfqwe" };
     final WsTestClients wsTestClients = new WsTestClients();
 
     private Wsgw wsgw;
 
-    URI wsgwBaseUrl;
+    private String wsgwServerName;
 
     public WsgwTestContext() {}
 
@@ -31,7 +32,7 @@ public class WsgwTestContext {
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
 
         wsgw = new Wsgw(new Configuration(appBaseUrl, tempDir.resolve("wsgw")), connectionIdGeneratorMock);
-        wsgwBaseUrl = URI.create("ws://localhost:%d".formatted(wsgw.start()));
+        wsgwServerName = "localhost:%d".formatted(wsgw.start());
     }
 
     public void tearDown() throws Exception {
@@ -41,8 +42,8 @@ public class WsgwTestContext {
         fakeApp.stop();
     }
 
-    public URI getWsgwUrl(String scheme, String wsgwPath) {
-        return URI.create("%s://%s:%d%s".formatted(scheme, wsgwBaseUrl.getHost(), wsgwBaseUrl.getPort(), wsgwPath));
+    public String getWsgwServerName() {
+        return wsgwServerName;
     }
 
     public BlockingQueue<Message> getAppInbox(String connectionId) {

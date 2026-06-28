@@ -11,6 +11,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
 import org.apache.catalina.Context;
 import org.apache.catalina.startup.Tomcat;
+import org.apache.coyote.http2.Http2Protocol;
 import org.apache.tomcat.util.descriptor.web.FilterDef;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.websocket.server.WsSci;
@@ -43,6 +44,18 @@ public class Wsgw {
         tomcat.setBaseDir(configuration.getBaseDir().toAbsolutePath().toString());
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
+
+        // Advertise h2c on the connector so HTTP/2-capable callers (the app->client push leg) can
+        // upgrade. This is client-opt-in: HTTP/1.1 callers and the WebSocket (Upgrade: websocket)
+        // handshake are unaffected, since they never send the h2c upgrade tokens.
+        //-- Create and configure the HTTP/2 protocol object
+        Http2Protocol http2Protocol = new Http2Protocol();
+        //-- Set maximum allowed active streams per connection
+        http2Protocol.setMaxConcurrentStreams(2000);
+        //-- Set maximum streams allocated to active request threads
+        http2Protocol.setMaxConcurrentStreamExecution(2000);
+        //-- Add the configured upgrade protocol to your connector
+        tomcat.getConnector().addUpgradeProtocol(http2Protocol);
 
         Context ctx = tomcat.addContext("", null);
 

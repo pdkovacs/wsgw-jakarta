@@ -36,8 +36,12 @@ public class RequestToApp {
     public static HttpClient appClient = createHttpClient();
 
     public static HttpClient createHttpClient() {
+        return createHttpClient(HttpClient.Version.HTTP_1_1);
+    }
+
+    public static HttpClient createHttpClient(HttpClient.Version version) {
         return HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
+                .version(version)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();

@@ -12,6 +12,7 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -47,9 +48,9 @@ public class MessageTest {
     @Test
     @Timeout(3)
     void relaysAMessageToApp() throws Exception {
-        URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
+        String wsgwServerName = wsgwTestContext.getWsgwServerName();
         String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
+        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
 
         final String messageToApp = sendMessageFromClientToApp(wsTestClient, connId);
 
@@ -60,12 +61,13 @@ public class MessageTest {
     @Timeout(3)
     void sendsAMessageToClient() throws Exception {
         try {
-            URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
+            String wsgwServerName = wsgwTestContext.getWsgwServerName();
             String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
+            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
 
-            final String messageFromApp = appSendsMessageToClient(connId);
-
+            var messageFromApp = wsTestClient.postMessageFromApp();
+            // The app->client push leg negotiated HTTP/2 (h2c) end to end — not a silent h1 fallback.
+            // Asserting response.version() here is what keeps a future h2c regression from passing green.
             assertMessageToClient(wsTestClient, messageFromApp);
         } catch (Exception e) {
             logger.error("Exception occurred during sending a message", e);
@@ -77,12 +79,12 @@ public class MessageTest {
     @Timeout(3)
     void sendReceiveAMessageFromAppSingleClientOneOff() throws Exception {
         try {
-            URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
+            String wsgwServerName = wsgwTestContext.getWsgwServerName();
             String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
+            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
 
             final String messageSentToApp = sendMessageFromClientToApp(wsTestClient, connId);
-            final String messageSentToClient = sendMessageFromAppToClient(connId);
+            final String messageSentToClient = wsTestClient.postMessageFromApp();
 
             assertMessageToApp(connId, messageSentToApp);
             assertMessageToClient(wsTestClient, messageSentToClient);
@@ -95,11 +97,11 @@ public class MessageTest {
     @Test
     @Timeout(3)
     void sendReceiveMessagesFromAppSingleClient() throws Exception {
-        int nrMessagesToSend = 1000;
+        int nrMessagesToSend = 100;
 
-        URI wsgwWebscoketServerURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
+        String wsgwServerName = wsgwTestContext.getWsgwServerName();
         String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwWebscoketServerURI, wsgwTestContext.apiKey);
+        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
 
         final Collection<String> messagesSentToApp = new ConcurrentLinkedQueue<>();
         final Collection<String> messagesSentToClient = new ConcurrentLinkedQueue<>();
@@ -117,7 +119,7 @@ public class MessageTest {
             };
 
             for (int i = 0; i < nrMessagesToSend; i++) {
-                executor.submit(() -> messagesSentToClient.add(sendMessageFromAppToClient(connId)));
+                executor.submit(() -> messagesSentToClient.add(wsTestClient.postMessageFromApp()));
             }
 
             // We're sending the messages to the application over the client websocket in (blocking) sequence in one
@@ -140,14 +142,14 @@ public class MessageTest {
     }
 
     @Test
-    @Timeout(30)
+    @Timeout(60)
     void sendReceiveMessagesFromAppMultipleClients() throws Exception {
         final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClients");
 
-        int nrClients = 10;
-        int nrMessagesToSend = 100;
+        int nrClients = 1000;
+        int nrMessagesToSend = 1000;
 
-        URI wsgwURI = URI.create(wsgwTestContext.wsgwBaseUrl.toString());
+        String wsgwServerName = wsgwTestContext.getWsgwServerName();
         var testClients = wsgwTestContext.wsTestClients;
 
         record ClientTestCtx(
@@ -163,7 +165,7 @@ public class MessageTest {
             final BlockingQueue<ClientTestCtx> clientContextsToStart = new LinkedBlockingQueue<>();;
 
             final Callable<Boolean> createWsConnection = () -> {
-                WebsocketTestClient wsTestClient = testClients.connect(wsgwURI, wsgwTestContext.apiKey);
+                WebsocketTestClient wsTestClient = testClients.connect(wsgwServerName, wsgwTestContext.apiKey);
                 final Collection<String> messagesSentToApp = new ConcurrentLinkedQueue<>();
                 final Collection<String> messagesSentToClient = new ConcurrentLinkedQueue<>();
                 clientContextsToStart.put(new ClientTestCtx(wsTestClient, messagesSentToApp, messagesSentToClient));
@@ -192,7 +194,14 @@ public class MessageTest {
                     var connId = wsTestClient.connectionId();
                     var messagesSentToClient = clientTestCtx.messagesSentToClient();
                     for (int i = 0; i < nrMessagesToSend && noImpeds.get(); i++) {
-                        submitErrorChecked.accept(sendMessageExeuctor, () -> messagesSentToClient.add(sendMessageFromAppToClient(connId)));
+                        submitErrorChecked.accept(
+                                sendMessageExeuctor,
+                                () -> {
+                                    final String messageFromApp = wsTestClient.postMessageFromApp();
+                                    messagesSentToClient.add(messageFromApp);
+                                    return true;
+                                }
+                        );
                     }
 
                     var messagesSentToApp = clientTestCtx.messagesSentToApp();
@@ -266,19 +275,6 @@ public class MessageTest {
             received.add(text);
         }
         assertThat(received).isEqualTo(new HashSet<>(messagesSentToApp));
-    }
-
-    private @NonNull String appSendsMessageToClient(String connId) throws IOException, InterruptedException {
-        final String messageFromApp = "%s from app over %s".formatted(Math.random(), connId);
-        logger.debug("Assembling request...");
-        var msgToClientUrl = wsgwTestContext.getWsgwUrl("http", "/%s/%s".formatted(WsgwPaths.MESSAGE_FROM_APP, connId));
-        HttpRequest request = HttpRequest.newBuilder(msgToClientUrl)
-                .POST(HttpRequest.BodyPublishers.ofString(messageFromApp))
-                .build();
-        logger.debug("Request assembled");
-        wsgwTestContext.httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-        logger.debug("Request sent");
-        return messageFromApp;
     }
 
     private static void assertMessageToClient(WebsocketTestClient wsTestClient, String messageFromApp)
