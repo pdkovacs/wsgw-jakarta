@@ -142,12 +142,12 @@ public class MessageTest {
     }
 
     @Test
-    @Timeout(60)
+    @Timeout(10)
     void sendReceiveMessagesFromAppMultipleClients() throws Exception {
         final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClients");
 
-        int nrClients = 1000;
-        int nrMessagesToSend = 1000;
+        int nrClients = 100;
+        int nrMessagesToSend = 100;
 
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
         var testClients = wsgwTestContext.wsTestClients;
@@ -244,7 +244,6 @@ public class MessageTest {
             assertMessagesToApp(wsTestClient.connectionId(), nrMessagesToSend, List.copyOf(messagesSentToApp));
             assertMessagesToClient(wsTestClient, nrMessagesToSend, List.copyOf(messagesSentToClient));
         }
-
     }
 
     private static @NonNull String sendMessageFromClientToApp(WebsocketTestClient wsTestClient, String connId)

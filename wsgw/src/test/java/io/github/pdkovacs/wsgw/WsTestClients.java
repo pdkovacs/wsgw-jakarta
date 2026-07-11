@@ -12,7 +12,6 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -67,9 +66,8 @@ class WsTestClients implements AutoCloseable {
     private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
 
     WebsocketTestClient connect(String wsgwServerName, String[] apiKey) throws Exception {
-        var client = createConnectWebsocketClient(wsgwServerName, apiKey);
-        clients.add(client);
-        return client;
+        // createConnectWebsocketClient already registers the client for teardown, so don't add twice.
+        return createConnectWebsocketClient(wsgwServerName, apiKey);
     }
 
     @Override
@@ -109,6 +107,10 @@ class WsTestClients implements AutoCloseable {
                         logger.debug("ClientEndpointConfig.Configurator after handshake done");
                     }
                 }).build();
+        // Increase the client handshake timeout, to increase the patience of the client to wait for the Upgrade
+        // request to return a meaningful result:
+        // cfg.getUserProperties().put("org.apache.tomcat.websocket.IO_TIMEOUT_MS", "30000");
+
         Session session = container.connectToServer(testClientEndpoint, cfg, connectURI);
         // connectToServer returns only after onOpen has run, so the session is ready
         // here — no latch needed.

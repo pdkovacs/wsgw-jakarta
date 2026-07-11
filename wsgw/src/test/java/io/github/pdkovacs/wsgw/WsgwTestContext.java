@@ -4,7 +4,6 @@ import io.github.pdkovacs.wsgw.appside.RequestToApp;
 import io.github.pdkovacs.wsgw.fake.app.FakeApp;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.util.concurrent.BlockingQueue;
@@ -17,7 +16,6 @@ public class WsgwTestContext {
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = RequestToApp.createHttpClient();
-    final HttpClient http2Client = RequestToApp.createHttpClient(HttpClient.Version.HTTP_2);
     final String[] apiKey = new String[] { "XKEY", "asdfqwe" };
     final WsTestClients wsTestClients = new WsTestClients();
 
