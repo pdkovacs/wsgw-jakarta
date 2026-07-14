@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.integration;
 
 import jakarta.websocket.Session;
 import org.jspecify.annotations.NonNull;
@@ -11,13 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -29,9 +23,9 @@ import java.util.function.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
-public class MessageTest {
+public class MessageIT {
 
-    private static final CtxLogger logger = CtxLogger.of(MessageTest.class);
+    private static final CtxLogger logger = CtxLogger.of(MessageIT.class);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 

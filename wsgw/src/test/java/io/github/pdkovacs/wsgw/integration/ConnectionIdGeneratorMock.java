@@ -1,6 +1,8 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.integration;
 
-public class ConnectionIdGeneratorMock implements ConnectionIdProvider{
+import io.github.pdkovacs.wsgw.ConnectionIdProvider;
+
+public class ConnectionIdGeneratorMock implements ConnectionIdProvider {
 
     private String nextId;
 

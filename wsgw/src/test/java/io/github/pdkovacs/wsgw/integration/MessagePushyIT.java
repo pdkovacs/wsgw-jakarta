@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.integration;
 
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +23,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stress ("pushy") sibling of {@link MessageTest}, kept in its own class because it plays by
+ * Stress ("pushy") sibling of {@link MessageIT}, kept in its own class because it plays by
  * different rules than the functional tests:
  *
  * Rate, not fail-fast. At this volume a stray transport reset is physical, not a
@@ -31,9 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * failures are collected, and we assert on the aggregate rate. Delivery correctness is still
  * every push that got an OK response must reach its inbox.
  */
-    public class MessagePushyTest {
+public class MessagePushyIT {
 
-    private static final CtxLogger logger = CtxLogger.of(MessagePushyTest.class);
+    private static final CtxLogger logger = CtxLogger.of(MessagePushyIT.class);
 
     // Fraction of transport-level send attempts allowed to fail (e.g. a reset on the h2c upgrade)
     // before the run is considered broken. Set to 0.0 to demand a perfectly clean run.

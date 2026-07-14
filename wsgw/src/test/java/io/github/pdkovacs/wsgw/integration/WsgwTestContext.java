@@ -1,7 +1,9 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.integration;
 
+import io.github.pdkovacs.wsgw.Configuration;
+import io.github.pdkovacs.wsgw.Wsgw;
 import io.github.pdkovacs.wsgw.appside.RequestToApp;
-import io.github.pdkovacs.wsgw.fake.app.FakeApp;
+import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.net.http.HttpClient;

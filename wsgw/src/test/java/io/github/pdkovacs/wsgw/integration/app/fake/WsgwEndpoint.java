@@ -1,9 +1,9 @@
-package io.github.pdkovacs.wsgw.fake.app;
+package io.github.pdkovacs.wsgw.integration.app.fake;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import io.github.pdkovacs.wsgw.Message;
+import io.github.pdkovacs.wsgw.integration.Message;
 
 public class WsgwEndpoint {
     final BlockingQueue<Message> messages = new LinkedBlockingQueue<>();

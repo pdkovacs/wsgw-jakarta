@@ -1,9 +1,10 @@
-package io.github.pdkovacs.wsgw.logging;
+package io.github.pdkovacs.wsgw.unit.logging;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

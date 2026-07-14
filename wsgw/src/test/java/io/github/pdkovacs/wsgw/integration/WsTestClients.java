@@ -1,5 +1,6 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.integration;
 
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appside.RequestToApp;
 import jakarta.websocket.*;
 import org.assertj.core.api.Assertions;

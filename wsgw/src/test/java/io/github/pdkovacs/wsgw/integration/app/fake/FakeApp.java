@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.fake.app;
+package io.github.pdkovacs.wsgw.integration.app.fake;
 
 import io.github.pdkovacs.wsgw.AppPaths;
 import org.apache.catalina.Context;

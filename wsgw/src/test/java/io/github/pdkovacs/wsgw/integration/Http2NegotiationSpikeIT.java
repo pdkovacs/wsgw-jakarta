@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.integration;
 
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.http.HttpServlet;
@@ -45,9 +45,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * then a body-carrying POST — mirroring the real message-from-app path and sidestepping the
  * "upgrade on a POST body" corner.
  */
-class Http2NegotiationSpike {
+class Http2NegotiationSpikeIT {
 
-    private static final CtxLogger logger = CtxLogger.of(Http2NegotiationSpike.class);
+    private static final CtxLogger logger = CtxLogger.of(Http2NegotiationSpikeIT.class);
 
     /** Echoes the server-observed protocol so the client can see what really happened. */
     private static final class EchoProtocolServlet extends HttpServlet {

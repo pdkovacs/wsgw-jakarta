@@ -1,9 +1,8 @@
-package io.github.pdkovacs.wsgw.fake.app;
+package io.github.pdkovacs.wsgw.integration.app.fake;
 
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.ConnectionIdExtractor;
-import io.github.pdkovacs.wsgw.Message;
-import io.github.pdkovacs.wsgw.WsgwPaths;
+import io.github.pdkovacs.wsgw.integration.Message;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
