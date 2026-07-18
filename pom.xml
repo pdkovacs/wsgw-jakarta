@@ -28,6 +28,11 @@
         <git-commit-id-plugin.version>9.0.1</git-commit-id-plugin.version>
         <surefire-plugin.version>3.5.5</surefire-plugin.version>
         <failsafe-plugin.version>3.5.5</failsafe-plugin.version>
+
+        <!-- Surefire/Failsafe swallow captured test stdout/stderr into the report XML by default here,
+             keeping tool noise (Mockito self-attach warnings, etc.) off the console. Flip to false to
+             echo captured output live — see the `test-logs` profile below. -->
+        <surefire.consoleOutput.disable>true</surefire.consoleOutput.disable>
         <junit.version>6.1.0</junit.version>
         <assertj.version>3.27.6</assertj.version>
         <mockito.version>5.18.0</mockito.version>
@@ -103,7 +108,7 @@
                     <configuration>
                         <reportFormat>plain</reportFormat>
                         <consoleOutputReporter>
-                            <disable>true</disable>
+                            <disable>${surefire.consoleOutput.disable}</disable>
                         </consoleOutputReporter>
                     </configuration>
                 </plugin>
@@ -114,7 +119,7 @@
                     <configuration>
                         <reportFormat>plain</reportFormat>
                         <consoleOutputReporter>
-                            <disable>true</disable>
+                            <disable>${surefire.consoleOutput.disable}</disable>
                         </consoleOutputReporter>
                     </configuration>
                     <executions>
@@ -129,4 +134,16 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <!-- Diagnostic runs: echo captured test stdout/stderr (incl. DEBUG logs from logback-test.xml)
+             live to the console. Usage: mvn -Ptest-logs -Dtest=WsConnectionsTest test
+             Remember to also bump the relevant logger to DEBUG in logback-test.xml. -->
+        <profile>
+            <id>test-logs</id>
+            <properties>
+                <surefire.consoleOutput.disable>false</surefire.consoleOutput.disable>
+            </properties>
+        </profile>
+    </profiles>
 </project>

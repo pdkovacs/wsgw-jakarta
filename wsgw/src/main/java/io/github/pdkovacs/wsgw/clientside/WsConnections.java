@@ -13,21 +13,50 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 public class WsConnections implements SessionRegistrar, MessagePusher, SessionCloser {
 
+    public interface Timeouts {
+        Duration getPushWaitForRegistration();
+
+        Duration getWaitForSendMessageDesaturation();
+    }
+
+    public interface Metrics {
+        void incPushWaitsOnRegistrationCount();
+    }
+
     private record Conn(Session session, ReentrantLock sendLock) {}
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
-    private final Duration pushToClientWaitTimeout;
+    private final Timeouts timeouts;
+    private final Metrics metrics;
 
     private final ConcurrentMap<String, CompletableFuture<Conn>> conns = new ConcurrentHashMap<>();
 
     public WsConnections(Duration pushToClientWaitTimeout) {
-        this.pushToClientWaitTimeout = pushToClientWaitTimeout;
+        this(new Timeouts() {
+            @Override
+            public Duration getPushWaitForRegistration() {
+                return pushToClientWaitTimeout;
+            }
+
+            @Override
+            public Duration getWaitForSendMessageDesaturation() {
+                return pushToClientWaitTimeout;
+            }
+        }, null);
+    }
+
+    public WsConnections(Timeouts timeouts, Metrics metrics) {
+        this.timeouts = timeouts;
+        this.metrics = metrics;
     }
 
     public void register(String connectionId, Session session) {
+        var mLogger = logger.with("method", "register").with("connectionId", connectionId);
         var conn = new Conn(session, new ReentrantLock());
+        mLogger.debug("Registering connection with id " + connectionId);
         this.conns.compute(connectionId, (_, existing) -> {
+            mLogger.debug("computing connection: exiting={}", existing);
             var completable = existing != null ? existing : new CompletableFuture<Conn>();
             completable.complete(conn);
             return completable;
@@ -38,6 +67,15 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         var mLogger = logger.with("method", "push").with("connectionId", connectionId);
         var completable = this.conns.compute(connectionId, (_, existing) -> {
             if (existing == null) {
+                // This push is going to create the holder, so no registration preceded it: the connection hit
+                // the push-before-register race and this push must park until registration lands (or
+                // the wait times out). Counted once per raced connection -- later pushes that pile
+                // onto the same not-yet-registered holder find it already present and are not
+                // recounted, so the metric measures race incidence, not parked-wait volume.
+                mLogger.debug("push arrived before register; parking until registration");
+                if (metrics != null) {
+                    metrics.incPushWaitsOnRegistrationCount();
+                }
                 return new CompletableFuture<Conn>();
             }
             return existing;
@@ -45,7 +83,8 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
         Conn conn = null;
         try {
-            conn = completable.get(pushToClientWaitTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            mLogger.debug("waiting for connection...");
+            conn = completable.get(timeouts.getPushWaitForRegistration().toMillis(), MILLISECONDS);
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (TimeoutException e) {
@@ -57,7 +96,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             }
         }
 
-        if (!conn.sendLock().tryLock(pushToClientWaitTimeout.toMillis(), MILLISECONDS)) {
+        if (!conn.sendLock().tryLock(timeouts.getWaitForSendMessageDesaturation().toMillis(), MILLISECONDS)) {
             throw new SendBackpressureException(connectionId);
         }
 
