@@ -85,6 +85,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         try {
             mLogger.debug("waiting for connection...");
             conn = completable.get(timeouts.getPushWaitForRegistration().toMillis(), MILLISECONDS);
+            mLogger.debug("got connection");
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (TimeoutException e) {
@@ -96,9 +97,12 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             }
         }
 
+        mLogger.debug("about to wait {} millis for sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
         if (!conn.sendLock().tryLock(timeouts.getWaitForSendMessageDesaturation().toMillis(), MILLISECONDS)) {
+            mLogger.debug("failed to acquire sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
             throw new SendBackpressureException(connectionId);
         }
+        mLogger.debug("acquired sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
 
         try {
             conn.session().getBasicRemote().sendText(message);

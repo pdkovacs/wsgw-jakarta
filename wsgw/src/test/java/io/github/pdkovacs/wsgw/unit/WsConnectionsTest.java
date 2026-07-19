@@ -9,6 +9,8 @@ import jakarta.websocket.Session;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -17,15 +19,61 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class WsConnectionsTest {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
+
+    // Population size per arm. Individual runs are races we cannot control; the aggregate over
+    // ARM_SIZE runs is what we assert on, so it must be large enough to swamp scheduler noise.
+    private static final int ARM_SIZE = 1000;
+    // The gap between the two operations. It only has to *bias* the ordering, not guarantee it:
+    // the aggregate assertion tolerates a minority of runs landing the "wrong" way. A single gap
+    // is slept once per arm (not per run), so wall-clock stays ~one gap regardless of ARM_SIZE.
+    private static final Duration ORDERING_GAP = Duration.ofMillis(50);
+    private static final Duration WAIT_FOR_REGISTRATION = Duration.ofSeconds(2);
+    private static final Duration WAIT_FOR_SENDMESSAGE_DESATURAITON = Duration.ofSeconds(1);
+
+    private Session newMockedSession() {
+        var session = mock(Session.class);
+        var basicRemote = mock(RemoteEndpoint.Basic.class);
+        when(session.getBasicRemote()).thenReturn(basicRemote);
+        return session;
+    }
+
+    private record ConnectionsUnderTest(WsConnections connections, AtomicInteger pushWaitsOnRegistration) {}
+
+    private ConnectionsUnderTest newConnections() {
+        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON);
+    }
+
+    private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration) {
+        return newConnections(pushWaitForRegistration, WAIT_FOR_SENDMESSAGE_DESATURAITON);
+    }
+
+    private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration, Duration waitForSendMessageDesaturation) {
+        var counter = new AtomicInteger(0);
+        var timeouts = new WsConnections.Timeouts() {
+            @Override
+            public Duration getPushWaitForRegistration() {
+                return pushWaitForRegistration;
+            }
+
+            @Override
+            public Duration getWaitForSendMessageDesaturation() {
+                return waitForSendMessageDesaturation;
+            }
+        };
+        var metrics = new WsConnections.Metrics() {
+            @Override
+            public void incPushWaitsOnRegistrationCount() {
+                counter.incrementAndGet();
+            }
+        };
+        return new ConnectionsUnderTest(new WsConnections(timeouts, metrics), counter);
+    }
 
     @Test
     @DisplayName("the happy path")
@@ -42,50 +90,6 @@ public class WsConnectionsTest {
         verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
-
-    private Session newMockedSession() {
-        var session = mock(Session.class);
-        var basicRemote = mock(RemoteEndpoint.Basic.class);
-        when(session.getBasicRemote()).thenReturn(basicRemote);
-        return session;
-    }
-
-    private record ConnectionsUnderTest(WsConnections connections, AtomicInteger pushWaitsOnRegistration) {}
-
-    private ConnectionsUnderTest newConnections() {
-        return newConnections(WAIT_FOR_REGISTRATION);
-    }
-
-    private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration) {
-        var counter = new AtomicInteger(0);
-        var timeouts = new WsConnections.Timeouts() {
-            @Override
-            public Duration getPushWaitForRegistration() {
-                return pushWaitForRegistration;
-            }
-
-            @Override
-            public Duration getWaitForSendMessageDesaturation() {
-                return Duration.ofSeconds(1);
-            }
-        };
-        var metrics = new WsConnections.Metrics() {
-            @Override
-            public void incPushWaitsOnRegistrationCount() {
-                counter.incrementAndGet();
-            }
-        };
-        return new ConnectionsUnderTest(new WsConnections(timeouts, metrics), counter);
-    }
-
-    // Population size per arm. Individual runs are races we cannot control; the aggregate over
-    // ARM_SIZE runs is what we assert on, so it must be large enough to swamp scheduler noise.
-    private static final int ARM_SIZE = 1000;
-    // The gap between the two operations. It only has to *bias* the ordering, not guarantee it:
-    // the aggregate assertion tolerates a minority of runs landing the "wrong" way. A single gap
-    // is slept once per arm (not per run), so wall-clock stays ~one gap regardless of ARM_SIZE.
-    private static final Duration ORDERING_GAP = Duration.ofMillis(50);
-    private static final Duration WAIT_FOR_REGISTRATION = Duration.ofSeconds(2);
 
     @Test
     @DisplayName("pushWaitsOnRegistrationCount tracks push-before-register ordering across a population")
@@ -246,8 +250,47 @@ public class WsConnectionsTest {
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
-    // @Test
-    // // send-path busy → backpressure failure.
-    // public void testPushFailsFastWhenSendPathSaturated() {}
+     @Test
+     @DisplayName("send-path busy → backpressure failure")
+     public void testPushFailsFastWhenSendPathSaturated() throws IOException {
+        var tcLogger = logger.with("method", "testPushFailsFastWhenSendPathSaturated");
+        var testConnectionId = "some connection-id";
+        var testMessage1 = "some message";
+        var testMessage2 = "some other message";
+        var mockedSession = newMockedSession();
+        var mockedBasicRemote = mockedSession.getBasicRemote();
+        var underTest = newConnections(Duration.ZERO, Duration.ofMillis(50));
+
+        var blockerToBlock = new CountDownLatch(1);
+        var blockingLatch = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                underTest.connections().register(testConnectionId, mockedSession);
+                doAnswer((Answer<Void>) invocation -> {
+                    blockerToBlock.countDown();
+                    tcLogger.debug("blocker to block");
+                    blockingLatch.await();
+                    return null;
+                }).when(mockedBasicRemote).sendText(testMessage1);
+                executor.submit(() -> {
+                    underTest.connections().push(testConnectionId, testMessage1);
+                    return null;
+                });
+
+                tcLogger.debug("awaiting blocker to block");
+                blockerToBlock.await();
+                tcLogger.debug("blocker is blocking");
+                underTest.connections().push(testConnectionId, testMessage2);
+                throw new AssertionError("Should have thrown a SendBackpressureException");
+            } catch (Exception e) {
+                tcLogger.debug("Exception from test action: {}", e.getMessage());
+                assertThat(e).isInstanceOf(SendBackpressureException.class);
+                var sbe = (SendBackpressureException) e;
+                assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
+            } finally {
+                blockingLatch.countDown();
+            }
+        }
+     }
 
 }
