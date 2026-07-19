@@ -1,12 +1,15 @@
 package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.clientside.WsConnections;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
@@ -20,6 +23,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class WsConnectionsTest {
+
+    private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
+
     @Test
     @DisplayName("the happy path")
     void testLonelyPushSendsMessageOverRegisteredSession() throws IOException, InterruptedException {
@@ -74,7 +80,7 @@ public class WsConnectionsTest {
     // the aggregate assertion tolerates a minority of runs landing the "wrong" way. A single gap
     // is slept once per arm (not per run), so wall-clock stays ~one gap regardless of ARM_SIZE.
     private static final Duration ORDERING_GAP = Duration.ofMillis(50);
-    private static final Duration WAIT_FOR_REGISTRATION = Duration.ofSeconds(5);
+    private static final Duration WAIT_FOR_REGISTRATION = Duration.ofSeconds(2);
 
     @Test
     @DisplayName("pushWaitsOnRegistrationCount tracks push-before-register ordering across a population")
@@ -175,28 +181,43 @@ public class WsConnectionsTest {
         }
     }
 
-     @Test
-     @DisplayName("register lands within registrationWait → send succeeds (race absorbed)")
-     public void testPushToleratesPushBeforeRegister() throws IOException, InterruptedException, ExecutionException {
+    @Test
+    @DisplayName("register lands within registrationWait → send succeeds (race absorbed)")
+    public void testPushToleratesPushBeforeRegister() throws IOException, InterruptedException, ExecutionException {
+        var tcLogger = logger.with("method", "testPushToleratesPushBeforeRegister");
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var connections = new WsConnections(Duration.ofSeconds(5));
+        var underTest = newConnections();
 
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var future = executor.submit((Callable<Void>) () -> {
-                connections.push(testConnectionId, testMessage);
-                return null;
-            });
-            Thread.sleep();
-            connections.register(testConnectionId, mockedSession);
-            future.get();
+        int iterationCount = 0;
+        while (++iterationCount < 1000) {
+            tcLogger.debug("Iteration {}", iterationCount);
+            final var fUnderTest = underTest;
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                var future = executor.submit((Callable<Void>) () -> {
+                    fUnderTest.connections().push(testConnectionId, testMessage);
+                    return null;
+                });
+                Thread.sleep(ORDERING_GAP.toMillis());
+                underTest.connections().register(testConnectionId, mockedSession);
+                future.get();
+            }
+
+            if (underTest.pushWaitsOnRegistration().get() >= 1) {
+                break;
+            }
+            mockedSession = newMockedSession();
+            mockedBasicRemote = mockedSession.getBasicRemote();
+            underTest = newConnections();
         }
 
-        verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
+        assertThat(iterationCount).isLessThan(1000);
+        assertThat(underTest.pushWaitsOnRegistration().get()).isEqualTo(1);
+        verify(mockedBasicRemote, times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
-     }
+    }
 
     // @Test
     // // register never lands → registration-timeout failure.
