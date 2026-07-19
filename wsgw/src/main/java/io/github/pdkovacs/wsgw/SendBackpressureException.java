@@ -5,4 +5,5 @@ public class SendBackpressureException extends RuntimeException {
     public SendBackpressureException(String connectionId) {
         this.connectionId = connectionId;
     }
+    public String getConnectionId() { return connectionId; }
 }

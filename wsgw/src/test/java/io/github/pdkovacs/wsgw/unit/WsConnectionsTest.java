@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw.unit;
 
+import io.github.pdkovacs.wsgw.SendBackpressureException;
 import io.github.pdkovacs.wsgw.clientside.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.RemoteEndpoint;
@@ -52,11 +53,15 @@ public class WsConnectionsTest {
     private record ConnectionsUnderTest(WsConnections connections, AtomicInteger pushWaitsOnRegistration) {}
 
     private ConnectionsUnderTest newConnections() {
+        return newConnections(WAIT_FOR_REGISTRATION);
+    }
+
+    private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration) {
         var counter = new AtomicInteger(0);
         var timeouts = new WsConnections.Timeouts() {
             @Override
             public Duration getPushWaitForRegistration() {
-                return WAIT_FOR_REGISTRATION;
+                return pushWaitForRegistration;
             }
 
             @Override
@@ -93,11 +98,11 @@ public class WsConnectionsTest {
         int registerBeforePush = runArm(/* registerFirst */ true);
 
         Assertions.assertThat(registerAfterPush)
-            .as("pushes that arrived before their registration and had to wait")
-            .isGreaterThan((int) (0.75 * ARM_SIZE));
+                .as("pushes that arrived before their registration and had to wait")
+                .isGreaterThan((int) (0.75 * ARM_SIZE));
         Assertions.assertThat(registerBeforePush)
-            .as("pushes that found their registration already present (no wait)")
-            .isLessThan((int) (0.25 * ARM_SIZE));
+                .as("pushes that found their registration already present (no wait)")
+                .isLessThan((int) (0.25 * ARM_SIZE));
     }
 
     @Test
@@ -130,8 +135,8 @@ public class WsConnectionsTest {
         // one* of the many pushes lands before register -- the rest dedup onto the same holder by
         // construction, so there is nothing to bias into a wide margin.
         Assertions.assertThat(counter.get())
-            .as("the fan-out of early pushes on one connection counts as a single raced connection")
-            .isEqualTo(1);
+                .as("the fan-out of early pushes on one connection counts as a single raced connection")
+                .isEqualTo(1);
     }
 
     // Runs one population arm and returns how many pushes recorded a wait-on-registration.
@@ -219,9 +224,28 @@ public class WsConnectionsTest {
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
-    // @Test
-    // // register never lands → registration-timeout failure.
-    // public void testPushTimesOutWhenRegisterNeverArrives() {}
+    @Test
+    @DisplayName("register never lands → registration-timeout failure")
+    public void testPushTimesOutWhenRegisterNeverArrives() {
+        var testConnectionId = "some connection-id";
+        var testMessage = "some message";
+        var mockedSession = newMockedSession();
+        var mockedBasicRemote = mockedSession.getBasicRemote();
+        var underTest = newConnections(Duration.ZERO);
+
+        try {
+            underTest.connections().push(testConnectionId, testMessage);
+            throw new AssertionError("Should have thrown a SendBackpressureException");
+        } catch (Exception e) {
+            assertThat(e).isInstanceOf(SendBackpressureException.class);
+            var sbe = (SendBackpressureException) e;
+            assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
+        }
+
+        assertThat(underTest.pushWaitsOnRegistration().get()).isEqualTo(1);
+        verifyNoMoreInteractions(mockedBasicRemote);
+    }
+
     // @Test
     // // send-path busy → backpressure failure.
     // public void testPushFailsFastWhenSendPathSaturated() {}
