@@ -25,9 +25,8 @@ public class WsConnectionsTest {
     void testLonelyPushSendsMessageOverRegisteredSession() throws IOException, InterruptedException {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
-        var mockedSession = mock(Session.class);
-        var mockedBasicRemote = mock(RemoteEndpoint.Basic.class);
-        when(mockedSession.getBasicRemote()).thenReturn(mockedBasicRemote);
+        var mockedSession = newMockedSession();
+        var mockedBasicRemote = mockedSession.getBasicRemote();
         var connections = new WsConnections(Duration.ofSeconds(5));
 
         connections.register(testConnectionId, mockedSession);
@@ -35,6 +34,37 @@ public class WsConnectionsTest {
 
         verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
+    }
+
+    private Session newMockedSession() {
+        var session = mock(Session.class);
+        var basicRemote = mock(RemoteEndpoint.Basic.class);
+        when(session.getBasicRemote()).thenReturn(basicRemote);
+        return session;
+    }
+
+    private record ConnectionsUnderTest(WsConnections connections, AtomicInteger pushWaitsOnRegistration) {}
+
+    private ConnectionsUnderTest newConnections() {
+        var counter = new AtomicInteger(0);
+        var timeouts = new WsConnections.Timeouts() {
+            @Override
+            public Duration getPushWaitForRegistration() {
+                return WAIT_FOR_REGISTRATION;
+            }
+
+            @Override
+            public Duration getWaitForSendMessageDesaturation() {
+                return Duration.ofSeconds(1);
+            }
+        };
+        var metrics = new WsConnections.Metrics() {
+            @Override
+            public void incPushWaitsOnRegistrationCount() {
+                counter.incrementAndGet();
+            }
+        };
+        return new ConnectionsUnderTest(new WsConnections(timeouts, metrics), counter);
     }
 
     // Population size per arm. Individual runs are races we cannot control; the aggregate over
@@ -67,34 +97,11 @@ public class WsConnectionsTest {
     @Test
     @DisplayName("many pushes before register on one connection count as a single raced connection")
     void testManyEarlyPushesCountAsOneRacedConnection() throws InterruptedException, ExecutionException {
-        // The metric measures race incidence (connections that hit the push-before-register window),
-        // not parked-wait volume, so a fan-out of early pushes on one connection must still count as
-        // one. This assertion is exact and needs only the weak, robust precondition that *at least
-        // one* of the many pushes lands before register -- the rest dedup onto the same holder by
-        // construction, so there is nothing to bias into a wide margin.
-        var counter = new AtomicInteger(0);
-        var timeouts = new WsConnections.Timeouts() {
-            @Override
-            public Duration getPushWaitForRegistration() {
-                return WAIT_FOR_REGISTRATION;
-            }
+        var underTest = newConnections();
+        var connections = underTest.connections();
+        var counter = underTest.pushWaitsOnRegistration();
 
-            @Override
-            public Duration getWaitForSendMessageDesaturation() {
-                return Duration.ofSeconds(1);
-            }
-        };
-        var metrics = new WsConnections.Metrics() {
-            @Override
-            public void incPushWaitsOnRegistrationCount() {
-                counter.incrementAndGet();
-            }
-        };
-        var connections = new WsConnections(timeouts, metrics);
-
-        var mockedSession = mock(Session.class);
-        var mockedBasicRemote = mock(RemoteEndpoint.Basic.class);
-        when(mockedSession.getBasicRemote()).thenReturn(mockedBasicRemote);
+        var mockedSession = newMockedSession();
 
         var connectionId = "shared-connection";
         int earlyPushes = 200;
@@ -111,6 +118,11 @@ public class WsConnectionsTest {
             awaitAll(pushes);
         }
 
+        // The metric measures race incidence (connections that hit the push-before-register window),
+        // not parked-wait volume, so a fan-out of early pushes on one connection must still count as
+        // one. This assertion is exact and needs only the weak, robust precondition that *at least
+        // one* of the many pushes lands before register -- the rest dedup onto the same holder by
+        // construction, so there is nothing to bias into a wide margin.
         Assertions.assertThat(counter.get())
             .as("the fan-out of early pushes on one connection counts as a single raced connection")
             .isEqualTo(1);
@@ -120,29 +132,11 @@ public class WsConnectionsTest {
     // registerFirst == false: submit all pushes, wait one gap, then register -> push-arrives-first.
     // registerFirst == true : register all, wait one gap, then submit pushes -> register-arrives-first.
     private int runArm(boolean registerFirst) throws InterruptedException, ExecutionException {
-        var counter = new AtomicInteger(0);
-        var timeouts = new WsConnections.Timeouts() {
-            @Override
-            public Duration getPushWaitForRegistration() {
-                return WAIT_FOR_REGISTRATION;
-            }
+        var underTest = newConnections();
+        var connections = underTest.connections();
+        var counter = underTest.pushWaitsOnRegistration();
 
-            @Override
-            public Duration getWaitForSendMessageDesaturation() {
-                return Duration.ofSeconds(1);
-            }
-        };
-        var metrics = new WsConnections.Metrics() {
-            @Override
-            public void incPushWaitsOnRegistrationCount() {
-                counter.incrementAndGet();
-            }
-        };
-        var connections = new WsConnections(timeouts, metrics);
-
-        var mockedSession = mock(Session.class);
-        var mockedBasicRemote = mock(RemoteEndpoint.Basic.class);
-        when(mockedSession.getBasicRemote()).thenReturn(mockedBasicRemote);
+        var mockedSession = newMockedSession();
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             if (registerFirst) {
@@ -186,9 +180,8 @@ public class WsConnectionsTest {
      public void testPushToleratesPushBeforeRegister() throws IOException, InterruptedException, ExecutionException {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
-        var mockedSession = mock(Session.class);
-        var mockedBasicRemote = mock(RemoteEndpoint.Basic.class);
-        when(mockedSession.getBasicRemote()).thenReturn(mockedBasicRemote);
+        var mockedSession = newMockedSession();
+        var mockedBasicRemote = mockedSession.getBasicRemote();
         var connections = new WsConnections(Duration.ofSeconds(5));
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -196,7 +189,7 @@ public class WsConnectionsTest {
                 connections.push(testConnectionId, testMessage);
                 return null;
             });
-            Thread.sleep(1);
+            Thread.sleep();
             connections.register(testConnectionId, mockedSession);
             future.get();
         }
