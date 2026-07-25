@@ -1,6 +1,9 @@
-package io.github.pdkovacs.wsgw.clientward;
+package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.SendBackpressureException;
+import io.github.pdkovacs.wsgw.clientward.MessagePusher;
+import io.github.pdkovacs.wsgw.clientward.SessionCloser;
+import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.Session;
 

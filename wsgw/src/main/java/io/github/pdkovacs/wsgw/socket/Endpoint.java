@@ -1,24 +1,23 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.appward.Relay;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.CloseReason;
-import jakarta.websocket.Endpoint;
 import jakarta.websocket.EndpointConfig;
 import jakarta.websocket.Session;
 
 import java.util.List;
 import java.util.Map;
 
-public class WsgwEndpoint extends Endpoint {
+public class Endpoint extends jakarta.websocket.Endpoint {
 
-    private static final CtxLogger logger = CtxLogger.of(WsgwEndpoint.class);
+    private static final CtxLogger logger = CtxLogger.of(Endpoint.class);
 
     private final SessionRegistrar registerSession;
     private final Relay appwardRelay; // ← constructor-injected (app scope)
 
-    public WsgwEndpoint(SessionRegistrar registerSession, Relay appwardRelay) {
+    public Endpoint(SessionRegistrar registerSession, Relay appwardRelay) {
         this.registerSession = registerSession;
         this.appwardRelay = appwardRelay;
     }

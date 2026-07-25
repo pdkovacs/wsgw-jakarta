@@ -1,5 +1,6 @@
-package io.github.pdkovacs.wsgw;
+package io.github.pdkovacs.wsgw.socket;
 
+import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.websocket.HandshakeResponse;
 import jakarta.websocket.server.HandshakeRequest;
 import jakarta.websocket.server.ServerEndpointConfig;
@@ -11,14 +12,14 @@ import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 
 import java.util.List;
 
-public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator {
+public class EndpointConfigurator extends ServerEndpointConfig.Configurator {
 
-    private static final Logger logger = LoggerFactory.getLogger(WsgwEndpointConfigurator.class);
+    private static final Logger logger = LoggerFactory.getLogger(EndpointConfigurator.class);
 
     private final Relay appwardRelay;
     private final SessionRegistrar registerSession;
 
-    public WsgwEndpointConfigurator(Relay appwardRelay, SessionRegistrar registerSession) {
+    public EndpointConfigurator(Relay appwardRelay, SessionRegistrar registerSession) {
         this.appwardRelay = appwardRelay;
         this.registerSession = registerSession;
     }
@@ -36,12 +37,12 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
     @Override
     public <T> T getEndpointInstance(Class<T> clazz) {
         logger.debug("getEndpointInstance called");
-        if (clazz != WsgwEndpoint.class) {
+        if (clazz != Endpoint.class) {
             logger.error("Unexpected endpoint type: " + clazz);
-            // WsgwEndpoint is the only endpoint currently implemented
+            // Endpoint is the only endpoint currently implemented
             throw new IllegalArgumentException("Unexpected endpoint type: " + clazz);
         }
-        T endpointInstance = clazz.cast(new WsgwEndpoint(registerSession, appwardRelay));
+        T endpointInstance = clazz.cast(new Endpoint(registerSession, appwardRelay));
         logger.debug("getEndpointInstance completed");
         return endpointInstance;
     }

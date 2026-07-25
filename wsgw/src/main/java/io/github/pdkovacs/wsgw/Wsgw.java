@@ -1,11 +1,12 @@
 package io.github.pdkovacs.wsgw;
 
 import io.github.pdkovacs.wsgw.appward.Relay;
-import io.github.pdkovacs.wsgw.clientward.WsConnections;
+import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
 import io.github.pdkovacs.wsgw.routehandlers.DisconnectRequest;
 import io.github.pdkovacs.wsgw.routehandlers.MessageRequest;
+import io.github.pdkovacs.wsgw.socket.WsListener;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -77,7 +78,7 @@ public class Wsgw {
         ctx.addServletContainerInitializer(new WsSci() {
             @Override
             public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
-                ctx.addListener(new WsgwWsListener(appwardRelay, wsConnections));
+                ctx.addListener(new WsListener(appwardRelay, wsConnections));
                 super.onStartup(clazzes, ctx);
             }
         }, null);

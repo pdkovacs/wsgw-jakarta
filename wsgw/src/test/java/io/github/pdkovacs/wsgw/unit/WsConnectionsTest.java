@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.SendBackpressureException;
-import io.github.pdkovacs.wsgw.clientward.WsConnections;
+import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
