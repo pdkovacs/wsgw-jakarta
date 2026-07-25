@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.SendBackpressureException;
-import io.github.pdkovacs.wsgw.clientside.WsConnections;
+import io.github.pdkovacs.wsgw.clientward.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
@@ -9,7 +9,6 @@ import jakarta.websocket.Session;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -293,4 +292,9 @@ public class WsConnectionsTest {
         }
      }
 
+    @Test
+    @DisplayName("sendMessage per-connection in-flight count")
+    public void testSendMessageInflightCount() throws IOException {
+
+    }
 }

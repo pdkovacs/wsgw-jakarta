@@ -3,7 +3,7 @@ package io.github.pdkovacs.wsgw.routehandlers;
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.WsgwPaths;
-import io.github.pdkovacs.wsgw.appside.RequestToApp;
+import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -37,7 +37,7 @@ public class ConnectionRequest extends HttpFilter {
             res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
         }
 
-        var reqHeaders = RequestToApp.getRequestHeaders(req);
+        var reqHeaders = Request.getRequestHeaders(req);
 
         var connectionId = this.connectionIdProvider.generateId();
         int appStatus;
@@ -69,7 +69,7 @@ public class ConnectionRequest extends HttpFilter {
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
         var log = ConnectionRequest.log.with("connId", connectionId).with("appBaseUrl", appBaseUrl);
         log.debug("About to register with app");
-        HttpResponse<Void> response = RequestToApp.send(appBaseUrl, reqHeaders,
+        HttpResponse<Void> response = Request.send(appBaseUrl, reqHeaders,
                 AppPaths.CONNECT_FROM_WSGW + "/" + connectionId, "GET", null);
         log.debug("Registered with app: status {}", response.statusCode());
         return response.statusCode();

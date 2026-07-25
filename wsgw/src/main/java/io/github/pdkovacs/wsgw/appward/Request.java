@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.appside;
+package io.github.pdkovacs.wsgw.appward;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -12,9 +12,9 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
 
-public class RequestToApp {
+public class Request {
 
-    private static final Logger log = LoggerFactory.getLogger(RequestToApp.class);
+    private static final Logger log = LoggerFactory.getLogger(Request.class);
 
     // Hop-by-hop WebSocket upgrade headers (plus host/content-length, which the
     // java.net.http client manages itself). These are stripped before relaying

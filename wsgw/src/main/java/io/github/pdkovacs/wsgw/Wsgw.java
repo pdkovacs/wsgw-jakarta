@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
-import io.github.pdkovacs.wsgw.appside.ToApp;
-import io.github.pdkovacs.wsgw.clientside.WsConnections;
+import io.github.pdkovacs.wsgw.appward.Relay;
+import io.github.pdkovacs.wsgw.clientward.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
 import io.github.pdkovacs.wsgw.routehandlers.DisconnectRequest;
@@ -16,7 +16,6 @@ import org.apache.tomcat.util.descriptor.web.FilterDef;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.websocket.server.WsSci;
 
-import java.nio.file.Path;
 import java.util.Set;
 
 public class Wsgw {
@@ -71,14 +70,14 @@ public class Wsgw {
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections);
 
-        var ToApp = new ToApp(configuration.getAppBaseUrl());
+        var appwardRelay = new Relay(configuration.getAppBaseUrl());
 
         // turn on WS support + register the endpoint before the context finishes
         // starting
         ctx.addServletContainerInitializer(new WsSci() {
             @Override
             public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
-                ctx.addListener(new WsgwWsListener(ToApp, wsConnections));
+                ctx.addListener(new WsgwWsListener(appwardRelay, wsConnections));
                 super.onStartup(clazzes, ctx);
             }
         }, null);

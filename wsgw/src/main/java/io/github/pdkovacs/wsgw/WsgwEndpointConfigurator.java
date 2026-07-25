@@ -6,8 +6,8 @@ import jakarta.websocket.server.ServerEndpointConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.github.pdkovacs.wsgw.appside.ToApp;
-import io.github.pdkovacs.wsgw.clientside.SessionRegistrar;
+import io.github.pdkovacs.wsgw.appward.Relay;
+import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 
 import java.util.List;
 
@@ -15,11 +15,11 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
 
     private static final Logger logger = LoggerFactory.getLogger(WsgwEndpointConfigurator.class);
 
-    private final ToApp toAppRelay;
+    private final Relay appwardRelay;
     private final SessionRegistrar registerSession;
 
-    public WsgwEndpointConfigurator(ToApp messageRelay, SessionRegistrar registerSession) {
-        this.toAppRelay = messageRelay;
+    public WsgwEndpointConfigurator(Relay appwardRelay, SessionRegistrar registerSession) {
+        this.appwardRelay = appwardRelay;
         this.registerSession = registerSession;
     }
 
@@ -41,7 +41,7 @@ public class WsgwEndpointConfigurator extends ServerEndpointConfig.Configurator 
             // WsgwEndpoint is the only endpoint currently implemented
             throw new IllegalArgumentException("Unexpected endpoint type: " + clazz);
         }
-        T endpointInstance = clazz.cast(new WsgwEndpoint(registerSession, toAppRelay));
+        T endpointInstance = clazz.cast(new WsgwEndpoint(registerSession, appwardRelay));
         logger.debug("getEndpointInstance completed");
         return endpointInstance;
     }

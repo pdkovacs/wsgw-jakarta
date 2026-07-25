@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.*;
-import io.github.pdkovacs.wsgw.clientside.SessionCloser;
+import io.github.pdkovacs.wsgw.clientward.SessionCloser;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

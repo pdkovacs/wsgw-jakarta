@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.appside;
+package io.github.pdkovacs.wsgw.appward;
 
 import java.io.IOException;
 import java.util.List;
@@ -7,12 +7,12 @@ import java.util.Map;
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
-public class ToApp {
-    private static final CtxLogger logger = CtxLogger.of(ToApp.class);
+public class Relay {
+    private static final CtxLogger logger = CtxLogger.of(Relay.class);
 
     private final String appBaseUrl;
 
-    public ToApp(String appBaseUrl) {
+    public Relay(String appBaseUrl) {
         this.appBaseUrl = appBaseUrl;
     }
 
@@ -30,7 +30,7 @@ public class ToApp {
         var log = logger.with("path", pathOnApp).with("connId", connectionId);
         try {
             log.debug("Sending request to app...");
-            RequestToApp.send(appBaseUrl, connectHeaders, pathOnApp + "/" + connectionId, "POST",
+            Request.send(appBaseUrl, connectHeaders, pathOnApp + "/" + connectionId, "POST",
                     msg);
             log.debug("Request sent to app");
         } catch (InterruptedException e) {

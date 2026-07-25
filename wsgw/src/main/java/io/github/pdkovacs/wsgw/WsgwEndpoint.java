@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
-import io.github.pdkovacs.wsgw.appside.ToApp;
-import io.github.pdkovacs.wsgw.clientside.SessionRegistrar;
+import io.github.pdkovacs.wsgw.appward.Relay;
+import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.CloseReason;
 import jakarta.websocket.Endpoint;
@@ -16,11 +16,11 @@ public class WsgwEndpoint extends Endpoint {
     private static final CtxLogger logger = CtxLogger.of(WsgwEndpoint.class);
 
     private final SessionRegistrar registerSession;
-    private final ToApp relay; // ← constructor-injected (app scope)
+    private final Relay appwardRelay; // ← constructor-injected (app scope)
 
-    public WsgwEndpoint(SessionRegistrar registerSession, ToApp relay) {
+    public WsgwEndpoint(SessionRegistrar registerSession, Relay appwardRelay) {
         this.registerSession = registerSession;
-        this.relay = relay;
+        this.appwardRelay = appwardRelay;
     }
 
     @Override
@@ -38,7 +38,7 @@ public class WsgwEndpoint extends Endpoint {
         @SuppressWarnings("unchecked")
         var connectHeaders = (Map<String, List<String>>) config.getUserProperties().get("connectHeaders");
 
-        session.addMessageHandler(String.class, msg -> relay.sendMessage(connectHeaders, connectionId, msg));
+        session.addMessageHandler(String.class, msg -> appwardRelay.sendMessage(connectHeaders, connectionId, msg));
         log.debug("onOpen completed");
     }
 
@@ -57,7 +57,7 @@ public class WsgwEndpoint extends Endpoint {
             var connectHeaders = (Map<String, List<String>>) s.getUserProperties().get("connectHeaders");
 
             logger.debug("Websocket %s disconnected. Reason: %s".formatted(connectionId, r));
-            relay.sendDisconnect(connectHeaders, connectionId);
+            appwardRelay.sendDisconnect(connectHeaders, connectionId);
         } catch (Exception e) {
             logger.error("Error while disconnecting", e);
         }

@@ -2,7 +2,7 @@ package io.github.pdkovacs.wsgw.integration;
 
 import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.Wsgw;
-import io.github.pdkovacs.wsgw.appside.RequestToApp;
+import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
@@ -17,7 +17,7 @@ public class WsgwTestContext {
     private final FakeApp fakeApp = new FakeApp();
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
-    final HttpClient httpClient = RequestToApp.createHttpClient();
+    final HttpClient httpClient = Request.createHttpClient();
     final String[] apiKey = new String[] { "XKEY", "asdfqwe" };
     final WsTestClients wsTestClients = new WsTestClients();
 

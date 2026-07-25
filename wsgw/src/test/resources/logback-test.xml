@@ -17,7 +17,7 @@
          logging both drowns the output and perturbs the timing under test. Bump a logger to DEBUG
          here (or temporarily in a test) when diagnosing a specific functional test. -->
     <logger name="io.github.pdkovacs.wsgw" level="INFO"/>
-    <logger name="io.github.pdkovacs.wsgw.clientside.WsConnections" level="DEBUG"/>
+    <logger name="io.github.pdkovacs.wsgw.clientward.WsConnections" level="DEBUG"/>
     <logger name="FakeApp" level="INFO"/>
 
 </configuration>

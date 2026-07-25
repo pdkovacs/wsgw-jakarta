@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.integration;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
-import io.github.pdkovacs.wsgw.appside.RequestToApp;
+import io.github.pdkovacs.wsgw.appward.Request;
 import jakarta.websocket.*;
 import org.assertj.core.api.Assertions;
 import org.jspecify.annotations.NonNull;
@@ -32,7 +32,7 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient,
     public static WebsocketTestClient of(String wsgwServer, TestClientEndpoint testClientEndpoint,
                                          Session websocketClientSession, String connectionId,
                                          BlockingQueue<Message> messageInbox) {
-        return new WebsocketTestClient(wsgwServer, RequestToApp.createHttpClient(HttpClient.Version.HTTP_2),
+        return new WebsocketTestClient(wsgwServer, Request.createHttpClient(HttpClient.Version.HTTP_2),
                 testClientEndpoint, websocketClientSession, connectionId, messageInbox);
     }
 
