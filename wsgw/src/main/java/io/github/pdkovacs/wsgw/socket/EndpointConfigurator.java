@@ -1,13 +1,13 @@
 package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
+import io.github.pdkovacs.wsgw.appward.Relays;
 import jakarta.websocket.HandshakeResponse;
 import jakarta.websocket.server.HandshakeRequest;
 import jakarta.websocket.server.ServerEndpointConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.github.pdkovacs.wsgw.appward.Relay;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 
 import java.util.List;
@@ -16,10 +16,10 @@ public class EndpointConfigurator extends ServerEndpointConfig.Configurator {
 
     private static final Logger logger = LoggerFactory.getLogger(EndpointConfigurator.class);
 
-    private final Relay appwardRelay;
+    private final Relays appwardRelay;
     private final SessionRegistrar registerSession;
 
-    public EndpointConfigurator(Relay appwardRelay, SessionRegistrar registerSession) {
+    public EndpointConfigurator(Relays appwardRelay, SessionRegistrar registerSession) {
         this.appwardRelay = appwardRelay;
         this.registerSession = registerSession;
     }

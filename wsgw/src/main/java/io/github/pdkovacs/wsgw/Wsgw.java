@@ -1,6 +1,6 @@
 package io.github.pdkovacs.wsgw;
 
-import io.github.pdkovacs.wsgw.appward.Relay;
+import io.github.pdkovacs.wsgw.appward.Relays;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
@@ -71,7 +71,7 @@ public class Wsgw {
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections);
 
-        var appwardRelay = new Relay(configuration.getAppBaseUrl());
+        var appwardRelay = new Relays(configuration.getAppBaseUrl());
 
         // turn on WS support + register the endpoint before the context finishes
         // starting

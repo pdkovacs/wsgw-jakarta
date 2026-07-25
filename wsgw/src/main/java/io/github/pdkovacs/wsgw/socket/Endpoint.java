@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.socket;
 
-import io.github.pdkovacs.wsgw.appward.Relay;
+import io.github.pdkovacs.wsgw.appward.ConnectionRelay;
+import io.github.pdkovacs.wsgw.appward.Relays;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.CloseReason;
@@ -15,9 +16,9 @@ public class Endpoint extends jakarta.websocket.Endpoint {
     private static final CtxLogger logger = CtxLogger.of(Endpoint.class);
 
     private final SessionRegistrar registerSession;
-    private final Relay appwardRelay; // ← constructor-injected (app scope)
+    private final Relays appwardRelay; // ← constructor-injected (app scope)
 
-    public Endpoint(SessionRegistrar registerSession, Relay appwardRelay) {
+    public Endpoint(SessionRegistrar registerSession, Relays appwardRelay) {
         this.registerSession = registerSession;
         this.appwardRelay = appwardRelay;
     }
@@ -37,12 +38,15 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         @SuppressWarnings("unchecked")
         var connectHeaders = (Map<String, List<String>>) config.getUserProperties().get("connectHeaders");
 
-        session.addMessageHandler(String.class, msg -> appwardRelay.sendMessage(connectHeaders, connectionId, msg));
+        ConnectionRelay connectionRelay = appwardRelay.createRelay(connectHeaders, connectionId);
+
+        session.addMessageHandler(String.class, msg -> connectionRelay.sendMessage(msg));
         log.debug("onOpen completed");
     }
 
     @Override
     public void onClose(Session s, CloseReason r) {
+        var mLogger = logger.with("method", "onClose");
         // The text at lines 177–180 is the normative contract in Jakarta WebSocket 2.1
         // bundled with Tomcat 11:
         // The user properties made available via
@@ -56,7 +60,12 @@ public class Endpoint extends jakarta.websocket.Endpoint {
             var connectHeaders = (Map<String, List<String>>) s.getUserProperties().get("connectHeaders");
 
             logger.debug("Websocket %s disconnected. Reason: %s".formatted(connectionId, r));
-            appwardRelay.sendDisconnect(connectHeaders, connectionId);
+            var relay = appwardRelay.getRelay(connectionId);
+            if (relay != null) {
+                relay.sendDisconnect();
+            } else {
+                mLogger.warn("ConnectionRelay for connection not found: {}", connectionId);
+            }
         } catch (Exception e) {
             logger.error("Error while disconnecting", e);
         }
