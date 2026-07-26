@@ -13,6 +13,7 @@ import java.util.concurrent.BlockingQueue;
 public class WsgwTestContext {
 
     private static final CtxLogger logger = CtxLogger.of(WsgwTestContext.class);
+    public static final int APPWARD_DISPATCHER_QUEUE_SIZE = 1;
 
     private final FakeApp fakeApp = new FakeApp();
 
@@ -31,7 +32,7 @@ public class WsgwTestContext {
         int appPort = fakeApp.start(tempDir, apiKey);
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
 
-        wsgw = new Wsgw(new Configuration(appBaseUrl, tempDir.resolve("wsgw")), connectionIdGeneratorMock);
+        wsgw = new Wsgw(new Configuration(appBaseUrl, tempDir.resolve("wsgw"), APPWARD_DISPATCHER_QUEUE_SIZE), connectionIdGeneratorMock);
         wsgwServerName = "localhost:%d".formatted(wsgw.start());
     }
 

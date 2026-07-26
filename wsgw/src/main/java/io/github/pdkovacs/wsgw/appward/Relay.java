@@ -7,31 +7,37 @@ import java.util.Map;
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
-public class ConnectionRelay {
-    private static final CtxLogger logger = CtxLogger.of(ConnectionRelay.class);
+public class Relay {
+    private static final CtxLogger logger = CtxLogger.of(Relay.class);
 
     private final String appBaseUrl;
     private final Map<String, List<String>> requestHeaders;
     private final String connectionId;
+    private final Dispatcher dispatcher;
 
-    ConnectionRelay(String appBaseUrl, Map<String, List<String>> requestHeaders, String connectionId) {
+    Relay(String appBaseUrl, Map<String, List<String>> requestHeaders, String connectionId, int queueSize) {
         this.appBaseUrl = appBaseUrl;
         this.requestHeaders = requestHeaders;
         this.connectionId = connectionId;
-        // create message processor with a bounded queue
-    }
-
-    void close() {
-        // close message processor with a bounded queue
+        dispatcher = new Dispatcher(
+                queueSize,
+            error -> {
+                logger.error("Error sending message", error);
+            }
+        );
+        dispatcher.start(connectionId);
     }
 
     public void sendMessage(String msg) {
-        relayToApp(AppPaths.MESSAGE_FROM_WSGW, msg);
+        dispatcher.accept(() -> relayToApp(AppPaths.MESSAGE_FROM_WSGW, msg));
     }
 
     public void sendDisconnect() {
-        logger.debug("ToAppRelay.onDisconnect");
-        relayToApp(AppPaths.DISCONNECTED_FROM_WSGW, null);
+        logger.debug("sendDisconnect called");
+        dispatcher.accept(() -> {
+            relayToApp(AppPaths.DISCONNECTED_FROM_WSGW, null);
+            dispatcher.setDone(true);
+        });
     }
 
     private void relayToApp(String pathOnApp, String msg) {
@@ -53,4 +59,12 @@ public class ConnectionRelay {
         }
     }
 
+    @Override
+    public String toString() {
+        return "Relay{" +
+                "appBaseUrl='" + appBaseUrl + '\'' +
+                ", connectionId='" + connectionId + '\'' +
+                ", dispatcher=" + dispatcher +
+                '}';
+    }
 }

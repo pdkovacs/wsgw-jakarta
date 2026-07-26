@@ -1,15 +1,13 @@
 package io.github.pdkovacs.wsgw;
 
-    import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 public class Main {
 
     static void main(String[] args) {
-        Logger logger = LoggerFactory.getLogger("click.bitkit.wsgw.jetty");
+        CtxLogger logger = CtxLogger.of(Main.class);
 
-        System.out.println("Hello World!");
-        var wsgw = new Wsgw(new Configuration(System.getenv("APP_BASE_URL"), null));
+        var wsgw = new Wsgw(Configuration.fromEnv());
         int port;
         try {
             port = wsgw.start();

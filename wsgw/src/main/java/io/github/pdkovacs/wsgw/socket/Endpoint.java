@@ -1,6 +1,6 @@
 package io.github.pdkovacs.wsgw.socket;
 
-import io.github.pdkovacs.wsgw.appward.ConnectionRelay;
+import io.github.pdkovacs.wsgw.appward.Relay;
 import io.github.pdkovacs.wsgw.appward.Relays;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -16,11 +16,11 @@ public class Endpoint extends jakarta.websocket.Endpoint {
     private static final CtxLogger logger = CtxLogger.of(Endpoint.class);
 
     private final SessionRegistrar registerSession;
-    private final Relays appwardRelay; // ← constructor-injected (app scope)
+    private final Relays appwardRelays; // ← constructor-injected (app scope)
 
-    public Endpoint(SessionRegistrar registerSession, Relays appwardRelay) {
+    public Endpoint(SessionRegistrar registerSession, Relays appwardRelays) {
         this.registerSession = registerSession;
-        this.appwardRelay = appwardRelay;
+        this.appwardRelays = appwardRelays;
     }
 
     @Override
@@ -38,33 +38,27 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         @SuppressWarnings("unchecked")
         var connectHeaders = (Map<String, List<String>>) config.getUserProperties().get("connectHeaders");
 
-        ConnectionRelay connectionRelay = appwardRelay.createRelay(connectHeaders, connectionId);
+        Relay relay = appwardRelays.createRelay(connectHeaders, connectionId);
 
-        session.addMessageHandler(String.class, msg -> connectionRelay.sendMessage(msg));
+        session.addMessageHandler(String.class, msg -> relay.sendMessage(msg));
         log.debug("onOpen completed");
     }
 
     @Override
     public void onClose(Session s, CloseReason r) {
         var mLogger = logger.with("method", "onClose");
-        // The text at lines 177–180 is the normative contract in Jakarta WebSocket 2.1
-        // bundled with Tomcat 11:
-        // The user properties made available via
-        // ServerEndpointConfig#getUserProperties() must be a per WebSocket connection
-        // (i.e. per Session) copy of the user properties. This copy, including any
-        // modifications made to the user properties during the execution of this method
-        // must be used to populate the initial contents of Session#getUserProperties().
-        try {
-            var connectionId = (String) s.getUserProperties().get("connectionId");
-            @SuppressWarnings("unchecked")
-            var connectHeaders = (Map<String, List<String>>) s.getUserProperties().get("connectHeaders");
+        mLogger.debug("onClose called");
 
+        var connectionId = (String) s.getUserProperties().get("connectionId");
+        mLogger = mLogger.with("connectionId", connectionId);
+
+        try {
             logger.debug("Websocket %s disconnected. Reason: %s".formatted(connectionId, r));
-            var relay = appwardRelay.getRelay(connectionId);
+            var relay = appwardRelays.detachRelay(connectionId);
             if (relay != null) {
                 relay.sendDisconnect();
             } else {
-                mLogger.warn("ConnectionRelay for connection not found: {}", connectionId);
+                mLogger.warn("Relay for connection not found: {}", connectionId);
             }
         } catch (Exception e) {
             logger.error("Error while disconnecting", e);

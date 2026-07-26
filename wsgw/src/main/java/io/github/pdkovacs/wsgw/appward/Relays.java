@@ -1,28 +1,30 @@
 package io.github.pdkovacs.wsgw.appward;
 
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Relays {
-    private final String appBaseUrl;
-    private final ConcurrentHashMap<String, ConnectionRelay> relays = new ConcurrentHashMap<>();
+    private static final CtxLogger logger = CtxLogger.of(Relays.class);
 
-    public Relays(String appBaseUrl) {
+    private final String appBaseUrl;
+    private final ConcurrentHashMap<String, Relay> relays = new ConcurrentHashMap<>();
+    private final int queueSize;
+
+    public Relays(String appBaseUrl, int queueSize) {
         this.appBaseUrl = appBaseUrl;
+        this.queueSize = queueSize;
     }
 
-    public ConnectionRelay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new ConnectionRelay(appBaseUrl, requestHeaders, connectionId);
+    public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
+        var relay = new Relay(appBaseUrl, requestHeaders, connectionId, queueSize);
         relays.put(connectionId, relay);
         return relay;
     };
 
-    public ConnectionRelay getRelay(String connectionId) {
-        var relay = relays.remove(connectionId);
-        if  (relay == null) {
-            relay.close();
-        }
-        return relay;
+    public Relay detachRelay(String connectionId) {   // retire from registry, hand it back
+        return relays.remove(connectionId);
     }
 }

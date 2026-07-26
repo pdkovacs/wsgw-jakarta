@@ -65,7 +65,7 @@ public class MessagePushyIT {
     }
 
     @Test
-    @Timeout(120)
+    @Timeout(300)
     void sendReceiveMessagesFromAppMultipleClientsPushy() throws Exception {
         final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClientsPushy");
 

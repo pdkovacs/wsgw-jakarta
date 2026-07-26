@@ -71,7 +71,7 @@ public class Wsgw {
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections);
 
-        var appwardRelay = new Relays(configuration.getAppBaseUrl());
+        var appwardRelay = new Relays(configuration.getAppBaseUrl(), configuration.getAppwardDispatcherQueueSize());
 
         // turn on WS support + register the endpoint before the context finishes
         // starting
