@@ -3,6 +3,8 @@ package io.github.pdkovacs.wsgw.unit;
 import io.github.pdkovacs.wsgw.SendBackpressureException;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
 
@@ -19,7 +21,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class WsConnectionsTest {
 
@@ -42,7 +43,13 @@ public class WsConnectionsTest {
         return session;
     }
 
-    private record ConnectionsUnderTest(WsConnections connections, AtomicInteger pushWaitsOnRegistration) {}
+    private record ConnectionsUnderTest(WsConnections connections, MeterRegistry registry) {
+        // Eagerly registered in the WsConnections ctor, so this read succeeds (returning 0) even in
+        // arms where no push ever raced -- the count, not a MeterNotFoundException, is the signal.
+        int registrationWaits() {
+            return (int) registry.get("wsgw.registration_waits").tag("leg", "push").counter().count();
+        }
+    }
 
     private ConnectionsUnderTest newConnections() {
         return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON);
@@ -53,7 +60,7 @@ public class WsConnectionsTest {
     }
 
     private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration, Duration waitForSendMessageDesaturation) {
-        var counter = new AtomicInteger(0);
+        var registry = new SimpleMeterRegistry();
         var timeouts = new WsConnections.Timeouts() {
             @Override
             public Duration getPushWaitForRegistration() {
@@ -65,13 +72,7 @@ public class WsConnectionsTest {
                 return waitForSendMessageDesaturation;
             }
         };
-        var metrics = new WsConnections.Metrics() {
-            @Override
-            public void incPushWaitsOnRegistrationCount() {
-                counter.incrementAndGet();
-            }
-        };
-        return new ConnectionsUnderTest(new WsConnections(timeouts, metrics), counter);
+        return new ConnectionsUnderTest(new WsConnections(timeouts, registry), registry);
     }
 
     @Test
@@ -81,7 +82,7 @@ public class WsConnectionsTest {
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var connections = new WsConnections(Duration.ofSeconds(5));
+        var connections = new WsConnections(Duration.ofSeconds(5), new SimpleMeterRegistry());
 
         connections.register(testConnectionId, mockedSession);
         connections.push(testConnectionId, testMessage);
@@ -113,7 +114,6 @@ public class WsConnectionsTest {
     void testManyEarlyPushesCountAsOneRacedConnection() throws InterruptedException, ExecutionException {
         var underTest = newConnections();
         var connections = underTest.connections();
-        var counter = underTest.pushWaitsOnRegistration();
 
         var mockedSession = newMockedSession();
 
@@ -137,7 +137,7 @@ public class WsConnectionsTest {
         // one. This assertion is exact and needs only the weak, robust precondition that *at least
         // one* of the many pushes lands before register -- the rest dedup onto the same holder by
         // construction, so there is nothing to bias into a wide margin.
-        Assertions.assertThat(counter.get())
+        Assertions.assertThat(underTest.registrationWaits())
                 .as("the fan-out of early pushes on one connection counts as a single raced connection")
                 .isEqualTo(1);
     }
@@ -148,7 +148,6 @@ public class WsConnectionsTest {
     private int runArm(boolean registerFirst) throws InterruptedException, ExecutionException {
         var underTest = newConnections();
         var connections = underTest.connections();
-        var counter = underTest.pushWaitsOnRegistration();
 
         var mockedSession = newMockedSession();
 
@@ -168,7 +167,7 @@ public class WsConnectionsTest {
                 awaitAll(pushes);
             }
         }
-        return counter.get();
+        return underTest.registrationWaits();
     }
 
     private List<Future<?>> submitPushes(java.util.concurrent.ExecutorService executor, WsConnections connections) {
@@ -213,7 +212,7 @@ public class WsConnectionsTest {
                 future.get();
             }
 
-            if (underTest.pushWaitsOnRegistration().get() >= 1) {
+            if (underTest.registrationWaits() >= 1) {
                 break;
             }
             mockedSession = newMockedSession();
@@ -222,7 +221,7 @@ public class WsConnectionsTest {
         }
 
         assertThat(iterationCount).isLessThan(1000);
-        assertThat(underTest.pushWaitsOnRegistration().get()).isEqualTo(1);
+        assertThat(underTest.registrationWaits()).isEqualTo(1);
         verify(mockedBasicRemote, times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
@@ -245,7 +244,7 @@ public class WsConnectionsTest {
             assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
         }
 
-        assertThat(underTest.pushWaitsOnRegistration().get()).isEqualTo(1);
+        assertThat(underTest.registrationWaits()).isEqualTo(1);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 

@@ -5,6 +5,8 @@ import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.websocket.Session;
 
 import java.io.IOException;
@@ -22,20 +24,19 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         Duration getWaitForSendMessageDesaturation();
     }
 
-    public interface Metrics {
-        void incPushWaitsOnRegistrationCount();
-    }
-
     private record Conn(Session session, ReentrantLock sendLock) {}
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
     private final Timeouts timeouts;
-    private final Metrics metrics;
+    // The leg tag is single-valued today; it exists so this meter shares the backpressure
+    // family's query shape, not because other legs wait. Registered eagerly (at 0) so the series is
+    // observable before the first race and reads never miss.
+    private final Counter registrationWaits;
 
     private final ConcurrentMap<String, CompletableFuture<Conn>> conns = new ConcurrentHashMap<>();
 
-    public WsConnections(Duration pushToClientWaitTimeout) {
+    public WsConnections(Duration pushToClientWaitTimeout, MeterRegistry registry) {
         this(new Timeouts() {
             @Override
             public Duration getPushWaitForRegistration() {
@@ -46,12 +47,12 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             public Duration getWaitForSendMessageDesaturation() {
                 return pushToClientWaitTimeout;
             }
-        }, null);
+        }, registry);
     }
 
-    public WsConnections(Timeouts timeouts, Metrics metrics) {
+    public WsConnections(Timeouts timeouts, MeterRegistry registry) {
         this.timeouts = timeouts;
-        this.metrics = metrics;
+        this.registrationWaits = registry.counter("wsgw.registration_waits", "leg", "push");
     }
 
     public void register(String connectionId, Session session) {
@@ -76,9 +77,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                 // onto the same not-yet-registered holder find it already present and are not
                 // recounted, so the metric measures race incidence, not parked-wait volume.
                 mLogger.debug("push arrived before register; parking until registration");
-                if (metrics != null) {
-                    metrics.incPushWaitsOnRegistrationCount();
-                }
+                registrationWaits.increment();
                 return new CompletableFuture<Conn>();
             }
             return existing;

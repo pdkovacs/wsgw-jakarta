@@ -7,6 +7,8 @@ import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
 import io.github.pdkovacs.wsgw.routehandlers.DisconnectRequest;
 import io.github.pdkovacs.wsgw.routehandlers.MessageRequest;
 import io.github.pdkovacs.wsgw.socket.WsListener;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -25,6 +27,8 @@ public class Wsgw {
 
     private final Configuration configuration;
     private final ConnectionIdProvider connectionIdProvider;
+
+    private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private Tomcat tomcat;
 
@@ -64,7 +68,7 @@ public class Wsgw {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
-        WsConnections wsConnections = new WsConnections(this.configuration.getPushToClientWaitTimeout());
+        WsConnections wsConnections = new WsConnections(this.configuration.getPushToClientWaitTimeout(), meterRegistry);
 
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
