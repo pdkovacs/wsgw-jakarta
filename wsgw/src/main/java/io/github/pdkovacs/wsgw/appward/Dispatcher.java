@@ -21,20 +21,20 @@ public class Dispatcher {
 
     private volatile boolean done;
 
-    public Dispatcher(int queueSize, ErrorChannel errorChannel) {
+    Dispatcher(int queueSize, ErrorChannel errorChannel) {
         queue = new LinkedBlockingQueue<>(queueSize);
         this.errorChannel = errorChannel;
     }
 
-    public void accept(Dispatch dispatch) {
+    void accept(Dispatch dispatch) {
         try {
             queue.put(dispatch);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            logger.info("{} interrupted in accept", this);
         }
     }
 
-    public void start(String connectionId) {
+    void start(String connectionId) {
         Thread.ofVirtual().name("dispatcher + " + connectionId).start(this::run);
     }
 
@@ -57,11 +57,11 @@ public class Dispatcher {
         mLogger.info("Finishing... interrupted: {}", Thread.currentThread().isInterrupted());
     }
 
-    public boolean isDone() {
+    private boolean isDone() {
         return done;
     }
 
-    public void setDone(boolean done) {
+    void setDone(boolean done) {
         this.done = done;
     }
 
