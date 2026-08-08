@@ -14,6 +14,30 @@ It is organized in two layers by depth of internal detail:
   per-element traceability table (§5.4) from contract to code. While the product
   is early-stage, this is the most active part of the document.
 
+**How names are written here.** Configuration knobs appear in their camelCase
+configuration form (`pushToClientWaitTimeout`); metrics appear under their
+Micrometer name, which is dot-separated (`wsgw.registration.waits`). The two are
+told apart by shape alone — no other marker is needed.
+
+The Micrometer name is the metric's identity; each monitoring backend renders it
+into its own dialect. Under Prometheus that rendering is more than a separator
+swap: tags become labels, and the exporter appends a type- and unit-dependent
+suffix.
+
+| Meter | Micrometer name | Prometheus exposition |
+|---|---|---|
+| `Counter` | `wsgw.registration.waits` | `wsgw_registration_waits_total` |
+| `Timer` | `wsgw.some.wait` (placeholder) | `wsgw_some_wait_seconds_count`, `…_sum`, `…_max` |
+
+So a name from this document is not always paste-able into a Prometheus query —
+derive it, or read it off the exporter. Note also that a *statistic* is not a
+series: where this document says "average send-wait time", the query is that
+timer's `_sum` divided by its `_count`.
+
+A metric gets a name here once its meter exists; until then it is described in
+prose, since the exact name and its tag dimensions are settled by the
+implementation.
+
 ---
 
 ## 1. The signal contract (the vocabulary)
@@ -80,8 +104,8 @@ further pushes to the same connection queue behind it.
 | Metric | Meaning |
 |---|---|
 | average send-wait time | How long pushes wait for the connection's send path to free up; the leading indicator of push congestion. |
-| `pushToClientWaitTimeoutCount` | Pushes that failed on the wait timeout; the input to the preempt threshold. |
-| push-before-ready count | Connections where a push arrived before the connection had finished establishing (see §3). |
+| push wait-timeout count | Pushes that failed on the wait timeout; the input to the preempt threshold (the count the `…PreemptThresholdMinute` knob is a threshold on). |
+| `wsgw.registration.waits` | Connections where a push arrived before the connection had finished establishing (see §3). |
 
 **Signals.**
 
@@ -205,7 +229,7 @@ visible.
 
 | Leg | Trigger | HTTP request to answer? | Knobs | Key metrics | Signal (when) |
 |---|---|---|---|---|---|
-| **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushToClientWaitTimeout`; `…PreemptThresholdMinute` | avg send-wait; `pushToClientWaitTimeoutCount`; push-before-ready count | 429 (send-wait timed out); 504 (not registered — connect-slow, §3); 503+`Retry-After` (threshold) |
+| **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushToClientWaitTimeout`; `…PreemptThresholdMinute` | avg send-wait; push wait-timeout count; `wsgw.registration.waits` | 429 (send-wait timed out); 504 (not registered — connect-slow, §3); 503+`Retry-After` (threshold) |
 | **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | connect wait timeout; max in-flight; preempt threshold | in-flight connects; connect latency; connect timeout count | 504 (app ack timed out); 503+`Retry-After` (admission/threshold) |
 | **RELAY** client→app | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout; response deadline | buffer depth/high-water; relay latency; block/drop/close counts | none over HTTP → TCP backpressure → WS close |
 
@@ -230,11 +254,14 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
   *fast-fail* wait on the per-session send lock (a `ReentrantLock`). wsgw is wired
   through the single-arg `WsConnections` constructor, which feeds one hardcoded
   value (10s) to **both**, so the two knobs are not yet separately configurable.
-- **push-before-ready count** — `[partial]`. Surfaced as
-  `incPushWaitsOnRegistrationCount` on the `Metrics` hook and incremented once per
-  raced connection, but `WsConnections` is constructed with a `null` metrics sink,
-  so it is currently recorded nowhere.
-- **503 preempt threshold**, `pushToClientWaitTimeoutCount`, **average send-wait
+- **push-before-ready count** — `[partial]`. A Micrometer `Counter`,
+  `wsgw.registration.waits` tagged `leg=push`, registered eagerly in the
+  `WsConnections` constructor (so the series reads 0 rather than missing before
+  the first race) and incremented once per raced connection. `Wsgw` holds a
+  `SimpleMeterRegistry`, which records the value in memory but exports it
+  nowhere — no scrape endpoint yet, so the counter is observable only in-process
+  (which is what the unit tests read).
+- **503 preempt threshold**, **push wait-timeout count**, **average send-wait
   time** metric, and `Retry-After` — `[planned]`.
 
 ### 5.2 CONNECT
@@ -277,9 +304,9 @@ touch.
 | §2.1 signal 429 (send-wait timeout) | `MessageRequest.doFilter` (`SendBackpressureException` → 429) | `[partial]` | no `Retry-After`; both waits currently throw the same exception, so registration timeouts also land here as 429 |
 | §2.1 signal 504 (registration-wait timeout) | `WsConnections.push` timeout branch → `MessageRequest.doFilter` | `[planned]` | today maps to 429; must be distinguished from the send-wait and mapped to 504 + short `Retry-After` |
 | §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]` | |
-| §2.1 metric `pushToClientWaitTimeoutCount` | — | `[planned]` | feeds the 503 threshold |
+| §2.1 metric push wait-timeout count | — | `[planned]` | feeds the 503 threshold |
 | §2.1 metric average send-wait time | — | `[planned]` | |
-| §2.1 metric push-before-ready | `WsConnections.push` → `Metrics.incPushWaitsOnRegistrationCount` | `[partial]` | incremented once per raced connection, but `WsConnections` is built with a `null` metrics sink (`Wsgw.start`) → recorded nowhere |
+| §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]` | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.2 knobs/metrics/signals (504, 503, admission bound) | `ConnectionRequest.registerWithApp` | `[planned]` | unbounded blocking on `Request.appClient` (20s TCP connect-timeout, no response deadline); reach failure → 502 |
 | §2.3 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
 | §2.3 relay enqueue timeout + levers + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]` | no fast-fail, no TCP backpressure / WS close, no metric |

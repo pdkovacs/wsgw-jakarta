@@ -47,7 +47,7 @@ public class WsConnectionsTest {
         // Eagerly registered in the WsConnections ctor, so this read succeeds (returning 0) even in
         // arms where no push ever raced -- the count, not a MeterNotFoundException, is the signal.
         int registrationWaits() {
-            return (int) registry.get("wsgw.registration_waits").tag("leg", "push").counter().count();
+            return (int) registry.get("wsgw.registration.waits").tag("leg", "push").counter().count();
         }
     }
 
@@ -248,9 +248,9 @@ public class WsConnectionsTest {
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
-     @Test
-     @DisplayName("send-path busy → backpressure failure")
-     public void testPushFailsFastWhenSendPathSaturated() throws IOException {
+    @Test
+    @DisplayName("send-path busy → backpressure failure")
+    public void testPushFailsFastWhenSendPathSaturated() throws IOException {
         var tcLogger = logger.with("method", "testPushFailsFastWhenSendPathSaturated");
         var testConnectionId = "some connection-id";
         var testMessage1 = "some message";
@@ -289,7 +289,7 @@ public class WsConnectionsTest {
                 blockingLatch.countDown();
             }
         }
-     }
+    }
 
     @Test
     @DisplayName("sendMessage per-connection in-flight count")

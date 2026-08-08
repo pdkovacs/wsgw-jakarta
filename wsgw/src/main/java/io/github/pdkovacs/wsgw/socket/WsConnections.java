@@ -54,7 +54,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     public WsConnections(Timeouts timeouts, MeterRegistry registry) {
         this.timeouts = timeouts;
-        this.registrationWaits = registry.counter("wsgw.registration_waits", "leg", "push");
+        this.registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
     }
 
     public void register(String connectionId, Session session) {
