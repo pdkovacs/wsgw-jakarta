@@ -27,7 +27,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 record WebsocketTestClient(String wsgwServer, HttpClient httpClient,
                            TestClientEndpoint testClientEndpoint, Session websocketClientSession,
                            String connectionId, BlockingQueue<Message> messageInbox) implements AutoCloseable {
-    private static final CtxLogger logger =CtxLogger.of(WebsocketTestClient.class);
+    private static final CtxLogger logger = CtxLogger.of(WebsocketTestClient.class);
 
     public static WebsocketTestClient of(String wsgwServer, TestClientEndpoint testClientEndpoint,
                                          Session websocketClientSession, String connectionId,
@@ -161,7 +161,7 @@ class TestClientEndpoint extends Endpoint {
         // Signal stream-end so a blocked messageInbox().take() unparks instead of
         // hanging until the test's @Timeout fires.
         try {
-            logger.debug("Closing session {}...", session.getId());
+            logger.debug("Closing session {} with reason {}...", session.getId(), closeReason);
             messageInbox.put(Message.EndOfStream.INSTANCE);
         } catch (InterruptedException e) {
             logger.error("Interrupted while putting EndOfStream to inbox", e);

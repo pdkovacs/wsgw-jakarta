@@ -53,7 +53,7 @@ public class MessageIT {
 
     @Test
     @Timeout(3)
-    void sendsAMessageToClient() throws Exception {
+    void sendsAMessageToClient() {
         try {
             String wsgwServerName = wsgwTestContext.getWsgwServerName();
             String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
@@ -71,7 +71,7 @@ public class MessageIT {
 
     @Test
     @Timeout(3)
-    void sendReceiveAMessageFromAppSingleClientOneOff() throws Exception {
+    void sendReceiveAMessageFromAppSingleClientOneOff() {
         try {
             String wsgwServerName = wsgwTestContext.getWsgwServerName();
             String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
@@ -147,16 +147,19 @@ public class MessageIT {
         var testClients = wsgwTestContext.wsTestClients;
 
         record ClientTestCtx(
-            WebsocketTestClient testClient,
-            Collection<String> messagesSentToApp,
-            Collection<String> messagesSentToClient
-        ) {};
+                WebsocketTestClient testClient,
+                Collection<String> messagesSentToApp,
+                Collection<String> messagesSentToClient
+        ) {
+        }
+        ;
 
         final Collection<ClientTestCtx> processedClientContexts = new ConcurrentLinkedQueue<>();
 
         var firstError = new AtomicReference<Throwable>();
         try (var topExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
-            final BlockingQueue<ClientTestCtx> clientContextsToStart = new LinkedBlockingQueue<>();;
+            final BlockingQueue<ClientTestCtx> clientContextsToStart = new LinkedBlockingQueue<>();
+            ;
 
             final Callable<Boolean> createWsConnection = () -> {
                 WebsocketTestClient wsTestClient = testClients.connect(wsgwServerName, wsgwTestContext.apiKey);
@@ -203,7 +206,7 @@ public class MessageIT {
                     // single task, because we would have to synchronize the individual calls on the remote client instance
                     // anyway:
                     submitErrorChecked.accept(sendMessageExeuctor, () -> {
-                        for (int i = 0; i < nrMessagesToSend  && noImpeds.get(); i++) {
+                        for (int i = 0; i < nrMessagesToSend && noImpeds.get(); i++) {
                             messagesSentToApp.add(sendMessageFromClientToApp(wsTestClient, connId));
                         }
                         return true;
@@ -213,13 +216,13 @@ public class MessageIT {
             };
 
             for (int i = 0; i < nrClients && noImpeds.get(); i++) {
-                submitErrorChecked.accept(topExecutor, () -> createWsConnection.call());
+                submitErrorChecked.accept(topExecutor, createWsConnection);
             }
             for (int i = 0; i < nrClients && noImpeds.get(); i++) {
                 tcLogger.debug("Taking client context to start...");
                 var clientCtx = clientContextsToStart.take();
                 tcLogger.debug("Client context to start {}", clientCtx.testClient.connectionId());
-                submitErrorChecked.accept(topExecutor, ()  -> sendMessages.apply(clientCtx));
+                submitErrorChecked.accept(topExecutor, () -> sendMessages.apply(clientCtx));
             }
         }
         var err = firstError.get();
@@ -253,8 +256,7 @@ public class MessageIT {
         Message msgReceivedByApp = wsgwTestContext.getAppInbox(connId).take();
         String text = switch (msgReceivedByApp) {
             case Message.Text(String t) -> t;
-            case Message.EndOfStream _ ->
-                fail("Expected message %s, got EndOfStream".formatted(messageToApp));
+            case Message.EndOfStream _ -> fail("Expected message %s, got EndOfStream".formatted(messageToApp));
         };
         assertThat(text).isEqualTo(messageToApp);
     }
@@ -275,8 +277,7 @@ public class MessageIT {
         var msgReceivedByClient = wsTestClient.messageInbox().take();
         String text = switch (msgReceivedByClient) {
             case Message.Text(String t) -> t;
-            case Message.EndOfStream _ ->
-                fail("Expected message %s, got EndOfStream".formatted(msgReceivedByClient));
+            case Message.EndOfStream _ -> fail("Expected message %s, got EndOfStream".formatted(msgReceivedByClient));
         };
         assertThat(text).isEqualTo(messageFromApp);
     }
@@ -289,6 +290,6 @@ public class MessageIT {
         while (inboxQueue.take() instanceof Message.Text(String text)) {
             received.add(text);
         }
-        assertThat(received).isEqualTo(new HashSet<String>(messagesSentToClient));
+        assertThat(received).isEqualTo(new HashSet<>(messagesSentToClient));
     }
 }
