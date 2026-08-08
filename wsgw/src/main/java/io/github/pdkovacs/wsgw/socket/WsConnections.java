@@ -11,6 +11,7 @@ import jakarta.websocket.Session;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.NoSuchElementException;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -24,7 +25,8 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         Duration getWaitForSendMessageDesaturation();
     }
 
-    private record Conn(Session session, ReentrantLock sendLock) {}
+    private record Conn(Session session, ReentrantLock sendLock) {
+    }
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
@@ -78,25 +80,25 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                 // recounted, so the metric measures race incidence, not parked-wait volume.
                 mLogger.debug("push arrived before register; parking until registration");
                 registrationWaits.increment();
-                return new CompletableFuture<Conn>();
+                return new CompletableFuture<>();
             }
             return existing;
         });
 
-        Conn conn = null;
+        Conn conn;
         try {
             mLogger.debug("waiting for connection...");
             conn = completable.get(timeouts.getPushWaitForRegistration().toMillis(), MILLISECONDS);
+            if (conn == null) {
+                mLogger.warn("No connection with id {}", connectionId);
+                throw new NoSuchElementException("No connection with id %s".formatted(connectionId));
+            }
             mLogger.debug("got connection");
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (TimeoutException e) {
             conns.remove(connectionId, completable);
             throw new SendBackpressureException(connectionId);
-        } finally {
-            if (conn == null) {
-                mLogger.warn("No connection with id {}", connectionId);
-            }
         }
 
         mLogger.debug("about to wait {} millis for sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
