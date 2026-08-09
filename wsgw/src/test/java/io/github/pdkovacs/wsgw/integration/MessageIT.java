@@ -230,9 +230,7 @@ public class MessageIT {
             throw new AssertionError("send failed under load", err);
         }
 
-        var clientCtxIterator = processedClientContexts.iterator();
-        while (clientCtxIterator.hasNext()) {
-            var clientCtx = clientCtxIterator.next();
+        for (ClientTestCtx clientCtx : processedClientContexts) {
             var wsTestClient = clientCtx.testClient();
             wsTestClient.websocketClientSession().close();
 

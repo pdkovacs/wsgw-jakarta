@@ -97,8 +97,8 @@ Each congestion site sits on exactly one data-flow leg. There are three:
 One asymmetry shapes the whole catalog: **PUSH and CONNECT are each triggered by
 an inbound HTTP request, so the gateway can answer that request with a signal
 from §1. RELAY is triggered by an inbound WebSocket frame — there is no HTTP
-request in flight to answer — so it cannot emit a §1 signal at all, and its
-levers are different in kind.**
+request in flight to answer — so it cannot emit a §1 signal at all, and the
+actions it takes instead are different in kind.**
 
 ### 2.1 PUSH — slow message push, app → client
 
@@ -113,8 +113,8 @@ further pushes to the same connection queue behind it.
 
 | Knob | Controls |
 |---|---|
-| `pushWaitForRegistration` | How long a push waits for its target connection to finish registering. Race-tolerance for the connect/`onOpen` ordering, and *not* a congestion budget. When it expires the gateway does not merely fail the push: it **terminates the connection** and answers 410. See "Why the gateway terminates" below. |
-| `pushToClientWaitTimeout` | How long a push then waits for the connection's send path to drain before failing with 429. The push-congestion budget proper. |
+| `pushWaitForRegistration` | How long a push waits for its target connection to finish registering. Applies only to pushes over a *just-opened* connection — one whose id the app already received as part of the new-connection notification but which is not yet available for client-ward traffic. When it expires, the gateway **terminates the connection** and answers 410. See "Why the gateway terminates" below. |
+| `pushToClientWaitTimeout` | How long a push — over a fully functional WebSocket connection — waits for the connection's send path to drain before failing with 429. The push-congestion budget proper. |
 | `pushToClientWaitTimeoutCountPreemptThresholdMinute` | `pushToClientWaitTimeout` expirations per minute above which the gateway sheds subsequent pushes preemptively with 503. |
 
 **Metrics.**
@@ -122,9 +122,9 @@ further pushes to the same connection queue behind it.
 | Metric | Meaning |
 |---|---|
 | average send-wait time | How long pushes wait for the connection's send path to free up; the leading indicator of push congestion. |
-| push wait-timeout count | Pushes that failed on the wait timeout; the input to the preempt threshold (the count the `…PreemptThresholdMinute` knob is a threshold on). |
+| push wait-timeout count | This counts pushes that failed on the wait timeout; input to the `…PreemptThresholdMinute` threshold. |
 | `wsgw.registration.waits` | Connections where a push arrived before the connection had finished establishing (see §3). This counts the *race*, which is benign and normally clears in under a millisecond. It is not a distress signal, and thresholding it would shed load during healthy operation. |
-| registration-timeout termination count | Connections terminated because `pushWaitForRegistration` expired before they registered. Every increment is one connection destroyed and one client forced to reconnect, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to its preempt threshold. |
+| registration-timeout termination count | This counts connections terminated because `pushWaitForRegistration` expired before they registered. Every increment is one connection destroyed and one client forced to reconnect, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to its preempt threshold. |
 
 **Signals.**
 
@@ -135,50 +135,36 @@ further pushes to the same connection queue behind it.
 | `pushToClientWaitTimeoutCountPreemptThresholdMinute` exceeded | **503** + `Retry-After` |
 | Session write error (not backpressure) | **502 Bad Gateway** |
 
-**Why the gateway terminates the connection, and why 410.**
+**Dependencies.**
 
-A connection's id is issued and handed to the app at upgrade time, but the
-connection cannot accept a push until it has registered. That leaves a window in
-which the id is valid and the connection is not yet usable. The window is
-normally sub-millisecond; `pushWaitForRegistration` is how long the gateway is
-willing to sit in it before declaring the connection a loss.
+```mermaid
+flowchart TD
+    R0["Push arrives before connection\nfinishes registering"]
+    R0 --> KnobReg{{"pushWaitForRegistration"}}
+    KnobReg -->|"registers before it expires"| RaceOK["wsgw.registration.waits\n(metric — benign race, not thresholded)"]
+    KnobReg -->|"still unregistered when it expires"| Terminate["connection terminated"]
+    Terminate --> Sig410(["410 Gone"])
+    Terminate --> MetricTerm["registration-timeout termination count\n(metric)"]
+    MetricTerm -.->|feeds| Ext1[["§2.2: connection-establishment\npreempt threshold"]]
 
-The important question is what happens to the connection when that wait expires.
-The gateway destroys it. It does not leave it to register a moment later and
-carry on.
+    S0["Push waits for connection's\nsend path to drain"]
+    S0 --> MetricAvg["average send-wait time\n(metric — leading indicator only)"]
+    S0 -->|"still waiting when\npushToClientWaitTimeout expires"| KnobSend{{"pushToClientWaitTimeout"}}
+    KnobSend --> Sig429(["429"])
+    KnobSend --> MetricWaitCount["push wait-timeout count\n(metric)"]
+    MetricWaitCount -->|"input to"| KnobPreempt{{"…PreemptThresholdMinute"}}
+    KnobPreempt -->|"breached"| Sig503(["503 + Retry-After"])
 
-The alternative — failing the push but keeping the connection — produces a
-split-brain that is silent and therefore dangerous. The app has been told its
-push failed and reasonably concludes the connection is unusable. Meanwhile the
-connection finishes registering and stays open, and the client on the other end
-keeps sending frames that the gateway keeps relaying to that same app. The app is
-now receiving traffic from a connection it has written off, and it will never push
-to that client again. Nothing in the system reports this state, because from each
-component's local point of view nothing went wrong. Terminating removes the state
-entirely: after the timeout the connection is gone, which is a condition every app
-must already handle, since connections die for ordinary reasons at any time.
+    WriteErr["session write error\n(not backpressure)"] --> Sig502(["502 Bad Gateway"])
+```
 
-This is also what makes the answer honest. The app is told **410 Gone**: this
-connection existed and no longer does. Two codes were considered and rejected:
+**Why the gateway terminates the connection.**
 
-- **504 + `Retry-After`** was the previous answer, and it is wrong once the
-  gateway terminates. 504 invites the caller to retry, but there is nothing left
-  to retry against — the gateway has just destroyed the connection the retry
-  would target. Every such retry is guaranteed to fail.
-- **404** says "no such connection," which reads as "you sent a bad id" and points
-  the app at a bug in its own id handling. The id was good; the gateway issued it
-  and then killed the connection behind it. 410 says exactly that, and it lets an
-  app distinguish a connection it lost from an id it got wrong.
-
-The cost is real and worth stating plainly: a client that connected perfectly well
-may be disconnected because the app pushed early and registration was slow, and it
-must reconnect. That is bounded by `pushWaitForRegistration`, so it only happens
-when establishment is genuinely unhealthy — and a dropped connection is a loud,
-observable, self-correcting failure, whereas the split-brain it replaces is
-silent and permanent.
-
-The termination count (see Metrics above) is what makes the behaviour auditable,
-and §2.2 consumes it as evidence that establishment is failing.
+When a new WebSocket connection is opened, a sub-millisecond window may be open
+in which the app is notified about the new connection and receives the
+connection id, and the connection is not yet usable. `pushWaitForRegistration`
+is how long the gateway is willing to sit in it before declaring the connection
+a loss, at which point it destroys the connection.
 
 ### 2.2 CONNECT — slow connection establishment, client → app
 
@@ -193,7 +179,8 @@ request to the app and only completes the WebSocket upgrade if the app accepts.
 |---|---|
 | connect wait timeout | How long the gateway waits for the app's connect acknowledgement before failing with 504. |
 | max in-flight connects | Admission bound on concurrent connection establishments. |
-| connection-establishment preempt threshold, per minute | Establishment failures per minute above which the gateway sheds *new* connections with 503. Both inputs below count toward it. Note this is a different knob from §2.1's `pushToClientWaitTimeoutCountPreemptThresholdMinute`, which sheds pushes on connections that already exist; the two never refer to each other, and neither one's breach affects the other's leg. |
+| preempt hold-down | Once the preempt threshold trips, how long the gateway keeps shedding before it looks at the failure rate again. Also the basis for the `Retry-After` it sends while shedding. |
+| connection-establishment preempt threshold, per minute | Establishment failures per minute above which the gateway sheds *new* connections with 503. Two metrics count toward it: the connect timeout count and the registration-timeout termination count. Note this is a different knob from §2.1's `pushToClientWaitTimeoutCountPreemptThresholdMinute`, which sheds pushes on connections that already exist; the two never refer to each other, and neither one's breach affects the other's leg. |
 
 **Metrics.**
 
@@ -204,13 +191,18 @@ request to the app and only completes the WebSocket upgrade if the app accepts.
 | connect timeout count | Connects that exceeded the wait timeout. |
 | registration-timeout termination count | Connections destroyed because they did not register in time (§2.1). |
 
-Both counts feed the connection-establishment preempt threshold, and both are
-counts of establishments that failed — the first observed while waiting for the
-app's acknowledgement, the second observed when a push found the connection still
-not ready and terminated it. They differ only in where the failure was noticed.
+The connect timeout count and the registration-timeout termination count both
+feed the connection-establishment preempt threshold, and both are counts of
+establishments that failed — the first observed while waiting for the app's
+acknowledgement, the second observed when a push found the connection still not
+ready and terminated it. They differ only in where the failure was noticed.
 Adding them is therefore sound rather than a convenience: the sum is the rate at
 which connection establishment is not completing, which is precisely what the
 threshold exists to watch.
+
+The other two metrics do not feed that threshold. The in-flight connect count is
+a level rather than a failure count, and it is the input to the admission bound
+(`max in-flight connects`); connect-to-app latency is a leading indicator only.
 
 Shedding new connections is the remedy that matches this cause. Establishment is
 a transient, bounded activity, so refusing new arrivals lets the pipeline drain,
@@ -218,14 +210,62 @@ after which the rate falls and the threshold clears itself. (Contrast §2.1's
 push-side threshold, which governs long-lived connections and cannot be relieved
 by admission control.)
 
+**That self-clearing is also why the threshold needs a hold-down.** A bare "shed
+while the rate is above the threshold" rule oscillates: shedding cuts the
+arrival rate, so failures fall, so the threshold clears, so the flood resumes and
+trips it again. The gateway therefore stays in shedding mode for the whole of
+`preempt hold-down` once tripped, and only re-evaluates the rate when it expires.
+The hold-down is not a second threshold — it is what keeps the first one from
+chattering.
+
+**`Retry-After` is the time remaining on the hold-down.** §1 requires
+`Retry-After` on 503 because a caller cannot infer when a condition it did not
+cause will clear. Here the gateway does know, so it should send what it knows
+rather than a constant: a fixed value sends callers back while the gate is still
+shut, and one that outlives the hold-down wastes capacity. The value must also
+carry jitter — every caller shed in the same window would otherwise return in
+lockstep and the herd would re-trip the threshold on the first evaluation after
+the gate opens, which is the oscillation the hold-down exists to prevent,
+re-entered from the client side.
+
+Neither applies to the admission bound. `max in-flight connects` is a level that
+falls as connects complete, so it clears on its own without chattering, and its
+503 carries a best-effort `Retry-After` rather than a known remainder.
+
 **Signals.**
 
 | Condition | Signal |
 |---|---|
 | App acknowledgement exceeds the connect wait timeout | **504** |
-| Admission bound or connection-establishment preempt threshold exceeded | **503** + `Retry-After` |
+| Connection-establishment preempt threshold exceeded | **503** + `Retry-After` = jittered time remaining on `preempt hold-down` |
+| Admission bound exceeded | **503** + best-effort `Retry-After` |
 | App unreachable (not backpressure) | **502 Bad Gateway** |
 | App declined the connect (e.g. 401) | passed through unchanged |
+
+**Dependencies.**
+
+```mermaid
+flowchart TD
+    C0["Client connect request relayed to app\n(awaiting acknowledgement)"]
+    C0 --> MetricInFlight["in-flight connect count\n(metric)"]
+    C0 --> MetricLatency["connect-to-app latency\n(metric)"]
+    C0 -->|"app responds in time,\ndeclines (e.g. 401)"| AppDeclined["app declines"]
+    AppDeclined --> SigPass(["passed through unchanged"])
+    C0 -->|"still waiting when\nconnect wait timeout expires"| KnobTimeout{{"connect wait timeout"}}
+    KnobTimeout --> Sig504(["504"])
+    KnobTimeout --> MetricTimeoutCount["connect timeout count\n(metric)"]
+
+    MetricInFlight -->|"input to"| KnobMaxInFlight{{"max in-flight connects"}}
+    KnobMaxInFlight -->|"breached"| Sig503(["503 + Retry-After"])
+
+    MetricTimeoutCount -->|"input to"| KnobPreempt{{"connection-establishment\npreempt threshold"}}
+    ExtTerm[["§2.1: registration-timeout\ntermination count"]] -.->|"input to"| KnobPreempt
+    KnobPreempt -->|"breached"| KnobHoldDown{{"preempt hold-down"}}
+    KnobHoldDown -->|"shedding; Retry-After =\ntime remaining, jittered"| Sig503
+    KnobHoldDown -->|"expired — re-evaluate the rate"| KnobPreempt
+
+    AppUnreachable["app unreachable\n(not backpressure)"] --> Sig502(["502 Bad Gateway"])
+```
 
 ### 2.3 RELAY — slow message relay, client → app
 
@@ -238,23 +278,41 @@ connection's relay buffer fills.
 
 **The asymmetry.** There is no HTTP request in flight to reject — the trigger
 arrived as a WebSocket frame — so none of §1's status codes apply to this leg.
-The levers here are different in kind:
+What the gateway does instead is act on the connection itself. Three actions are
+available, and they occupy the same slot a signal would: each is the terminal
+step of a congestion decision, aimed back at the producer.
 
-- **TCP backpressure (preferred)** — stop reading the client socket so the OS
-  flow-control window closes and the client's writes stall. This is the closest
-  analogue to natural backpressure and loses no data.
-- **WebSocket close** — terminate a connection whose backlog cannot be drained,
-  using an application close code.
-- **Drop** — discard frames; only acceptable if the message contract tolerates
-  loss, which wsgw's does not by default. Last resort.
+- **Stop reading the client socket (preferred)** — the OS flow-control window
+  closes and the client's writes stall. This is TCP backpressure: the closest
+  analogue to natural backpressure, and it loses no data.
+- **Close the WebSocket** — terminate a connection whose backlog cannot be
+  drained, using an application close code.
+- **Drop frames** — discard them; only acceptable if the message contract
+  tolerates loss, which wsgw's does not by default. Last resort.
 
 **Knobs.**
 
 | Knob | Controls |
 |---|---|
 | `appwardDispatcherQueueSize` | Per-connection relay buffer bound. |
-| relay enqueue timeout | How long the relay may wait for buffer space before applying a lever above. |
-| relay response deadline | How long the gateway waits for the app to accept a relayed message. |
+| relay enqueue timeout | How long the relay may wait for buffer space before taking one of the three actions above. |
+| relay response deadline | How long the gateway waits for the app to accept a relayed message. On expiry the message is re-sent, up to `max relay retries`; once those are exhausted the connection is closed. |
+| max relay retries | How many times a message whose deadline expired is re-sent before the gateway gives up on the connection. This knob alone decides *whether* retries happen: zero means the first deadline expiry closes the connection. |
+| relay retry interval | How long the gateway waits between retries, in milliseconds. Spacing only — it has no bearing on whether a retry is attempted. |
+
+**Retry is re-delivery.** A deadline expiry does not mean the app failed to
+process the message — the response may merely be late. Retrying therefore makes
+relay delivery at-least-once, so `POST /message-from-wsgw/{connectionId}` must be
+idempotent or otherwise tolerate duplicates. That is part of the app-side
+contract, not an implementation detail.
+
+**The two relay budgets interact.** Retries occupy the connection's single drain
+path, so the worst-case head-of-line stall is `(max relay retries + 1) × relay
+response deadline + max relay retries × relay retry interval`. A stalled drain is
+exactly what fills the buffer, so if the relay enqueue timeout is shorter than
+that stall, an exhausted retry sequence on a busy connection also trips the
+enqueue timeout and the operator sees two actions fire from one cause. The two
+budgets have to be tuned against each other.
 
 **Metrics.**
 
@@ -262,11 +320,38 @@ The levers here are different in kind:
 |---|---|
 | relay buffer depth / high-water mark | Fill level per connection; the only early warning for this leg. |
 | relay-to-app latency | How long the app takes to accept a relayed message. |
-| enqueue-block / drop / close counts | How often each lever fired. |
+| relay retry count | Messages re-sent after a deadline expiry. A rising count means the drain is stalling before the buffer shows it. |
+| retry-exhaustion count | Connections closed because their retries ran out. Every increment is one connection destroyed and one client forced to reconnect, so this is the distress signal of the pair. |
+| enqueue-block / drop / close counts | How often each of the three actions was taken. |
 
-**Signals.** None over HTTP — see the levers above. Because relay congestion
-cannot turn a request red, it is observable only through the buffer-depth metric
-until it escalates to a WebSocket close.
+**Signals.** None over HTTP — see the three actions above. Because relay congestion
+cannot turn a request red, it is observable only through the buffer-depth and
+retry metrics until it escalates to a WebSocket close.
+
+**Dependencies.**
+
+```mermaid
+flowchart TD
+    E0["Inbound WebSocket frame relayed to app\n(POST /message-from-wsgw/{id})"]
+    E0 --> MetricLatency["relay-to-app latency\n(metric — leading indicator only)"]
+    E0 -->|"app hasn't accepted when\nrelay response deadline expires"| KnobDeadline{{"relay response deadline"}}
+    KnobDeadline --> KnobRetries{{"max relay retries /\nrelay retry interval"}}
+    KnobRetries -->|"retries remain,\nspaced by the interval"| E0
+    KnobRetries -->|"retries exhausted"| ActClose
+    KnobRetries --> MetricRetries["relay retry count /\nretry-exhaustion count (metric)"]
+
+    E0 --> MetricDepth["relay buffer depth /\nhigh-water mark (metric)"]
+    MetricDepth -->|"input to"| KnobQueueSize{{"appwardDispatcherQueueSize"}}
+    KnobQueueSize -->|"still full when\nrelay enqueue timeout expires"| KnobEnqueueTimeout{{"relay enqueue timeout"}}
+
+    KnobEnqueueTimeout --> ActStopRead(["stop reading the client socket\n(preferred — this is TCP backpressure)"])
+    KnobEnqueueTimeout -->|"backlog cannot be drained"| ActClose(["close the WebSocket"])
+    KnobEnqueueTimeout --> ActDrop(["drop frames\n(last resort — wsgw's contract\ndoesn't tolerate loss by default)"])
+
+    ActStopRead --> MetricActions["enqueue-block / drop / close counts\n(metric)"]
+    ActClose --> MetricActions
+    ActDrop --> MetricActions
+```
 
 ---
 
@@ -300,8 +385,8 @@ visible.
 | Leg | Trigger | HTTP request to answer? | Knobs | Key metrics | Signal (when) |
 |---|---|---|---|---|---|
 | **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushToClientWaitTimeout`; `…PreemptThresholdMinute` | avg send-wait; push wait-timeout count; `wsgw.registration.waits`; registration-timeout termination count | 429 (send-wait timed out); 410 (not registered in time → connection terminated, §3); 503+`Retry-After` (threshold) |
-| **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | connect wait timeout; max in-flight; connection-establishment preempt threshold | in-flight connects; connect latency; connect timeout count; registration-timeout termination count (§2.1) | 504 (app ack timed out); 503+`Retry-After` (admission/threshold) |
-| **RELAY** client→app | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout; response deadline | buffer depth/high-water; relay latency; block/drop/close counts | none over HTTP → TCP backpressure → WS close |
+| **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | connect wait timeout; max in-flight; connection-establishment preempt threshold; preempt hold-down | in-flight connects; connect latency; connect timeout count; registration-timeout termination count (§2.1) | 504 (app ack timed out); 503+`Retry-After` (admission, or threshold for the rest of the hold-down) |
+| **RELAY** client→app | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout; response deadline; max retries; retry interval | buffer depth/high-water; relay latency; retry & retry-exhaustion counts; block/drop/close counts | none over HTTP → retry → stop reading socket → WS close |
 
 ---
 
@@ -390,11 +475,13 @@ draining a bounded `LinkedBlockingQueue`), created via `Relays`.
   (`APPWARD_DISPATCHER_QUEUE_SIZE`, default 1024) bounds the queue.
 - **Fast-fail / signalling** — `[planned]`. When the queue is full,
   `Dispatcher.accept` calls `queue.put()`, which **blocks the WebSocket-receiving
-  thread** — buffering, but no enqueue timeout, no TCP backpressure, no close, no
+  thread** — buffering, but no enqueue timeout, no stop-reading, no close, no
   metric. This is the rawest instance of the problem: the block is cheap, so
   nothing throttles the client.
-- Relay response deadline (no per-request timeout on `appClient` today) and all
-  RELAY metrics — `[planned]`.
+- Relay response deadline, the retry-then-close escalation behind it, and all
+  RELAY metrics — `[planned]`. `Request.appClient` carries no per-request
+  timeout today, so nothing bounds a relay whose app never answers, and there is
+  no retry path to hang off that bound.
 
 ### 5.4 Traceability: contract element → code → status
 
@@ -415,8 +502,11 @@ touch.
 | §2.1 metric average send-wait time | — | `[planned]` | |
 | §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]` | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.2 knobs/metrics/signals (504, 503, admission bound) | `ConnectionRequest.registerWithApp` | `[planned]` | unbounded blocking on `Request.appClient` (20s TCP connect-timeout, no response deadline); reach failure → 502 |
+| §2.2 preempt hold-down + `Retry-After` = jittered remainder | shared failure-rate window read by `ConnectionRequest.registerWithApp`; incremented there and in `WsConnections.push` | `[planned]` | the threshold is a *rate*, so a cumulative `Counter` cannot drive it — needs a windowed count as decision state, separate from the export meters; the shed state and its remaining hold-down must be readable where the 503 is written |
 | §2.2 termination count as a threshold input | — | `[planned]` | blocked on the §2.1 termination row above: until registration timeouts terminate and are counted, there is nothing to feed the threshold |
 | §2.3 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
-| §2.3 relay enqueue timeout + levers + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]` | no fast-fail, no TCP backpressure / WS close, no metric |
-| §2.3 relay response deadline | `Request.appClient` | `[planned]` | no per-request timeout |
+| §2.3 relay enqueue timeout + its three actions + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]` | no fast-fail, no stop-reading / WS close, no metric |
+| §2.3 relay response deadline | `Request.appClient` | `[planned]` | no per-request timeout, so nothing bounds a relay the app never answers |
+| §2.3 retry-then-close escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]` | blocked on the deadline row above — there is no expiry event to retry from; also needs the at-least-once duplicate tolerance stated in §2.3 agreed with the app side |
+| §2.3 metrics relay retry count / retry-exhaustion count | — | `[planned]` | retry-exhaustion is the leg's distress signal; no meter yet |
 | §1 uniform `Retry-After` on 429/503 | — | `[planned]` | |
