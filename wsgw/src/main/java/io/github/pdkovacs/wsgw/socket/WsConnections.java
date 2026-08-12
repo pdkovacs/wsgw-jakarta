@@ -8,13 +8,13 @@ import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.websocket.CloseReason;
 import jakarta.websocket.Session;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.NoSuchElementException;
 import java.util.concurrent.*;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
@@ -26,9 +26,6 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         Duration getWaitForSendMessageDesaturation();
     }
 
-    private record Conn(Session session, ReentrantLock sendLock) {
-    }
-
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
     private final Timeouts timeouts;
@@ -38,7 +35,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     private final Counter registrationWaits;
     private final Counter registrationTimeoutTermination;
 
-    private final ConcurrentMap<String, CompletableFuture<Conn>> conns = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
 
     public WsConnections(Duration pushToClientWaitTimeout, MeterRegistry registry) {
         this(new Timeouts() {
@@ -62,19 +59,20 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     public void register(String connectionId, Session session) {
         var mLogger = logger.with("method", "register").with("connectionId", connectionId);
-        var conn = new Conn(session, new ReentrantLock());
         mLogger.debug("Registering connection with id " + connectionId);
-        this.conns.compute(connectionId, (_, existing) -> {
+        var conn = this.conns.compute(connectionId, (_, existing) -> {
             mLogger.debug("computing connection: exiting={}", existing);
-            var completable = existing != null ? existing : new CompletableFuture<Conn>();
-            completable.complete(conn);
-            return completable;
+            var connection = existing != null ? existing : new WsConnection(connectionId);
+            return connection;
         });
+        if (!conn.registerSession(session)) {
+            conns.remove(connectionId, conn);
+        }
     }
 
     public void push(String connectionId, String message) throws SendWaitTimedOut, IOException, InterruptedException {
         var mLogger = logger.with("method", "push").with("connectionId", connectionId);
-        var completable = this.conns.compute(connectionId, (_, existing) -> {
+        var conn = this.conns.compute(connectionId, (_, existing) -> {
             if (existing == null) {
                 // This push is going to create the holder, so no registration preceded it: the connection hit
                 // the push-before-register race and this push must park until registration lands (or
@@ -83,53 +81,26 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                 // recounted, so the metric measures race incidence, not parked-wait volume.
                 mLogger.debug("push arrived before register; parking until registration");
                 registrationWaits.increment();
-                return new CompletableFuture<>();
+                return new WsConnection(connectionId);
             }
             return existing;
         });
 
-        Conn conn;
         try {
-            mLogger.debug("waiting for connection...");
-            conn = completable.get(timeouts.getPushWaitForRegistration().toMillis(), MILLISECONDS);
-            if (conn == null) {
-                mLogger.warn("No connection with id {}", connectionId);
-                throw new NoSuchElementException("No connection with id %s".formatted(connectionId));
-            }
-            mLogger.debug("got connection");
+             conn.sendMessage(message, timeouts.getPushWaitForRegistration(), timeouts.getWaitForSendMessageDesaturation());
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
-        } catch (TimeoutException e) {
+        } catch (ConnectionGone e) {
             registrationTimeoutTermination.increment();
-            conns.remove(connectionId, completable);
-            throw new ConnectionGone(connectionId);
-        }
-
-        mLogger.debug("about to wait {} millis for sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
-        if (!conn.sendLock().tryLock(timeouts.getWaitForSendMessageDesaturation().toMillis(), MILLISECONDS)) {
-            mLogger.debug("failed to acquire sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
-            throw new SendWaitTimedOut(connectionId);
-        }
-        mLogger.debug("acquired sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
-
-        try {
-            conn.session().getBasicRemote().sendText(message);
-        } finally {
-            conn.sendLock().unlock();
         }
     }
 
     public void close(String connectionId) throws IOException {
         var mLogger = logger.with("method", "close").with("connectionId", connectionId);
-        var completable = conns.remove(connectionId);
-        if (completable == null) {
+        var conn = conns.remove(connectionId);
+        if (conn == null) {
             mLogger.warn("No connection with id {}", connectionId);
-            throw new IllegalArgumentException("No connection with id " + connectionId);
-        }
-        if (completable.isDone() && !completable.isCompletedExceptionally() && !completable.isCancelled()) {
-            completable.getNow(null).session().close();
-        } else {
-            completable.cancel(false); // unblock a push parked on get(...)
+            conn.close();
         }
     }
 }
