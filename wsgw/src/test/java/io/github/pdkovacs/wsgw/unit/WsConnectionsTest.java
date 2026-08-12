@@ -1,6 +1,6 @@
 package io.github.pdkovacs.wsgw.unit;
 
-import io.github.pdkovacs.wsgw.SendBackpressureException;
+import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -237,10 +237,10 @@ public class WsConnectionsTest {
 
         try {
             underTest.connections().push(testConnectionId, testMessage);
-            throw new AssertionError("Should have thrown a SendBackpressureException");
+            throw new AssertionError("Should have thrown a SendWaitTimedOut");
         } catch (Exception e) {
-            assertThat(e).isInstanceOf(SendBackpressureException.class);
-            var sbe = (SendBackpressureException) e;
+            assertThat(e).isInstanceOf(SendWaitTimedOut.class);
+            var sbe = (SendWaitTimedOut) e;
             assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
         }
 
@@ -279,11 +279,11 @@ public class WsConnectionsTest {
                 blockerToBlock.await();
                 tcLogger.debug("blocker is blocking");
                 underTest.connections().push(testConnectionId, testMessage2);
-                throw new AssertionError("Should have thrown a SendBackpressureException");
+                throw new AssertionError("Should have thrown a SendWaitTimedOut");
             } catch (Exception e) {
                 tcLogger.debug("Exception from test action: {}", e.getMessage());
-                assertThat(e).isInstanceOf(SendBackpressureException.class);
-                var sbe = (SendBackpressureException) e;
+                assertThat(e).isInstanceOf(SendWaitTimedOut.class);
+                var sbe = (SendWaitTimedOut) e;
                 assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
             } finally {
                 blockingLatch.countDown();

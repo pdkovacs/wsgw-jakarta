@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.socket;
 
-import io.github.pdkovacs.wsgw.SendBackpressureException;
+import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
+import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
@@ -35,6 +36,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     // family's query shape, not because other legs wait. Registered eagerly (at 0) so the series is
     // observable before the first race and reads never miss.
     private final Counter registrationWaits;
+    private final Counter registrationTimeoutTermination;
 
     private final ConcurrentMap<String, CompletableFuture<Conn>> conns = new ConcurrentHashMap<>();
 
@@ -55,6 +57,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     public WsConnections(Timeouts timeouts, MeterRegistry registry) {
         this.timeouts = timeouts;
         this.registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
+        this.registrationTimeoutTermination = registry.counter("wsgw.registration.timeout.termination", "leg", "push");
     }
 
     public void register(String connectionId, Session session) {
@@ -69,7 +72,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         });
     }
 
-    public void push(String connectionId, String message) throws SendBackpressureException, IOException, InterruptedException {
+    public void push(String connectionId, String message) throws SendWaitTimedOut, IOException, InterruptedException {
         var mLogger = logger.with("method", "push").with("connectionId", connectionId);
         var completable = this.conns.compute(connectionId, (_, existing) -> {
             if (existing == null) {
@@ -97,14 +100,15 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (TimeoutException e) {
+            registrationTimeoutTermination.increment();
             conns.remove(connectionId, completable);
-            throw new SendBackpressureException(connectionId);
+            throw new ConnectionGone(connectionId);
         }
 
         mLogger.debug("about to wait {} millis for sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
         if (!conn.sendLock().tryLock(timeouts.getWaitForSendMessageDesaturation().toMillis(), MILLISECONDS)) {
             mLogger.debug("failed to acquire sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
-            throw new SendBackpressureException(connectionId);
+            throw new SendWaitTimedOut(connectionId);
         }
         mLogger.debug("acquired sendLock", timeouts.getWaitForSendMessageDesaturation().toMillis());
 

@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.*;
+import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
@@ -36,7 +37,7 @@ public class MessageRequest extends HttpFilter {
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
             messagePusher.push(connectionId, message);
             log.debug("Message pushed to client");
-        } catch (SendBackpressureException sendBackpressure) {
+        } catch (SendWaitTimedOut sendBackpressure) {
             res.sendError(429 /*Too Many Requests*/, "Retry later");
         } catch (Exception e) {
             log.warn("Failed to push message to client", e);

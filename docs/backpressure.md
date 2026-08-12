@@ -400,7 +400,7 @@ mechanics behind it. Status tags: `[implemented]`, `[partial]`, `[planned]`.
 Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
 
 - **429 on timeout** — `[partial]`. `MessageRequest` returns 429 (`"Retry later"`)
-  when `push` throws `SendBackpressureException`. No `Retry-After` header yet.
+  when `push` throws `SendWaitTimedOut`. No `Retry-After` header yet.
 - **The two waits behind §2.1's two knobs** — `[partial]`. `push` runs the two
   waits sequentially through the `Timeouts` interface: `getPushWaitForRegistration`
   (→ §2.1 `pushWaitForRegistration`) is the *patient* wait absorbing the
@@ -448,7 +448,7 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
   clients in `WsTestClients` cannot observe 1013 and must assert on 1002 or on the
   reason phrase, which survives intact.
 - **410 on a terminated connection** — `[planned]`. Both waits currently throw the
-  same `SendBackpressureException` and land as 429, so the registration timeout is
+  same `SendWaitTimedOut` and land as 429, so the registration timeout is
   not yet distinguishable from the send-wait at the filter.
 - **`pushToClientWaitTimeoutCountPreemptThresholdMinute`**, **push wait-timeout
   count**, **average send-wait time** metric, **registration-timeout termination
@@ -493,9 +493,9 @@ touch.
 |---|---|---|---|
 | §2.1 `pushToClientWaitTimeout` (send-desaturation budget) | `Timeouts.getWaitForSendMessageDesaturation`; value from `Configuration.getPushToClientWaitTimeout()` | `[partial]` | hardcoded 10s; shares the one value with `pushWaitForRegistration`, not independently configurable |
 | §2.1 `pushWaitForRegistration` (race tolerance) | `Timeouts.getPushWaitForRegistration` | `[partial]` | fed the same 10s via the single-arg `WsConnections` ctor; not separately configurable |
-| §2.1 signal 429 (send-wait timeout) | `MessageRequest.doFilter` (`SendBackpressureException` → 429) | `[partial]` | no `Retry-After`; both waits currently throw the same exception, so registration timeouts also land here as 429 |
+| §2.1 signal 429 (send-wait timeout) | `MessageRequest.doFilter` (`SendWaitTimedOut` → 429) | `[partial]` | no `Retry-After`; both waits currently throw the same exception, so registration timeouts also land here as 429 |
 | §2.1 termination on registration timeout | `WsConnections.push` timeout branch (tombstone) + `WsConnections.register` (close) | `[planned]` | today the wait just expires and the connection survives → the split-brain §2.1 describes; needs the tombstone, its two lifetimes, and the `onClose` WARN fixed |
-| §2.1 signal 410 (connection terminated) | `WsConnections.push` timeout branch → `MessageRequest.doFilter` | `[planned]` | today maps to 429; both waits throw the same `SendBackpressureException`, so the registration timeout must be distinguished from the send-wait before it can map to 410 |
+| §2.1 signal 410 (connection terminated) | `WsConnections.push` timeout branch → `MessageRequest.doFilter` | `[planned]` | today maps to 429; both waits throw the same `SendWaitTimedOut`, so the registration timeout must be distinguished from the send-wait before it can map to 410 |
 | §2.1 close code 1013 on termination | — | `[planned]` | code choice verified by `CloseCodeProbeIT`; Tomcat's client rewrites it to 1002, so tests must assert 1002 or the reason phrase |
 | §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]` | |
 | §2.1 metric push wait-timeout count | — | `[planned]` | feeds the 503 threshold |
