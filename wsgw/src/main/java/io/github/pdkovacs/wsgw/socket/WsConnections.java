@@ -60,13 +60,18 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     public void register(String connectionId, Session session) {
         var mLogger = logger.with("method", "register").with("connectionId", connectionId);
         mLogger.debug("Registering connection with id " + connectionId);
-        var conn = this.conns.compute(connectionId, (_, existing) -> {
-            mLogger.debug("computing connection: exiting={}", existing);
-            var connection = existing != null ? existing : new WsConnection(connectionId);
-            return connection;
-        });
-        if (!conn.registerSession(session)) {
-            conns.remove(connectionId, conn);
+        try {
+            var conn = this.conns.compute(connectionId, (_, existing) -> {
+                mLogger.debug("computing connection: exiting={}", existing);
+                var connection = existing != null ? existing : new WsConnection(connectionId);
+                return connection;
+            });
+            if (!conn.registerSession(session)) {
+                conns.remove(connectionId);
+            }
+        } catch (Exception e) {
+            conns.remove(connectionId);
+            throw e;
         }
     }
 
@@ -100,7 +105,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         var conn = conns.remove(connectionId);
         if (conn == null) {
             mLogger.warn("No connection with id {}", connectionId);
-            conn.close();
         }
+        conn.close();
     }
 }
