@@ -77,7 +77,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("the happy path")
-    void testLonelyPushSendsMessageOverRegisteredSession() throws IOException, InterruptedException {
+    void lonelyPushSendsMessageOverRegisteredSession() throws IOException, InterruptedException {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
         var mockedSession = newMockedSession();
@@ -93,7 +93,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("pushWaitsOnRegistrationCount tracks push-before-register ordering across a population")
-    void testPushWaitsOnRegistrationCountTracksOrdering() throws InterruptedException, ExecutionException {
+    void pushWaitsOnRegistrationCountTracksOrdering() throws InterruptedException, ExecutionException {
         // We do not assume the injected gap deterministically fixes the ordering (that would be an
         // assumption about the runtime's timing properties). We only assume it *biases* it, and
         // assert that the counter separates the two populations by a margin only broken code could
@@ -111,7 +111,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("many pushes before register on one connection count as a single raced connection")
-    void testManyEarlyPushesCountAsOneRacedConnection() throws InterruptedException, ExecutionException {
+    void manyEarlyPushesCountAsOneRacedConnection() throws InterruptedException, ExecutionException {
         var underTest = newConnections();
         var connections = underTest.connections();
 
@@ -190,7 +190,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("register lands within registrationWait → send succeeds (race absorbed)")
-    public void testPushToleratesPushBeforeRegister() throws IOException, InterruptedException, ExecutionException {
+    void pushToleratesPushBeforeRegister() throws IOException, InterruptedException, ExecutionException {
         var tcLogger = logger.with("method", "testPushToleratesPushBeforeRegister");
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
@@ -228,7 +228,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("register never lands → registration-timeout failure")
-    public void testPushTimesOutWhenRegisterNeverArrives() {
+    void pushTimesOutWhenRegisterNeverArrives() {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
         var mockedSession = newMockedSession();
@@ -250,7 +250,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("send-path busy → backpressure failure")
-    public void testPushFailsFastWhenSendPathSaturated() throws IOException {
+    void pushFailsFastWhenSendPathSaturated() throws IOException {
         var tcLogger = logger.with("method", "testPushFailsFastWhenSendPathSaturated");
         var testConnectionId = "some connection-id";
         var testMessage1 = "some message";
@@ -293,7 +293,7 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("sendMessage per-connection in-flight count")
-    public void testSendMessageInflightCount() throws IOException {
+    void sendMessageInflightCount() throws IOException {
 
     }
 }
