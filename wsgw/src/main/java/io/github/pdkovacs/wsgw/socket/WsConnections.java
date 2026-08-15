@@ -37,7 +37,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         this.registrationTimeoutTermination = registry.counter("wsgw.registration.timeout.termination", "leg", "push");
     }
 
-    public void register(String connectionId, Session session) {
+    public boolean register(String connectionId, Session session) {
         var mLogger = logger.with("method", "register").with("connectionId", connectionId);
         mLogger.debug("Registering connection with id " + connectionId);
         try {
@@ -48,7 +48,9 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             });
             if (!conn.registerSession(session)) {
                 conns.remove(connectionId);
+                return false;
             }
+            return true;
         } catch (Exception e) {
             conns.remove(connectionId);
             throw e;

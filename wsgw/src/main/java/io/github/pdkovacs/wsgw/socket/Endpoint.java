@@ -15,11 +15,11 @@ public class Endpoint extends jakarta.websocket.Endpoint {
 
     private static final CtxLogger logger = CtxLogger.of(Endpoint.class);
 
-    private final SessionRegistrar registerSession;
+    private final SessionRegistrar sessionRegistrar;
     private final Relays appwardRelays; // ← constructor-injected (app scope)
 
-    public Endpoint(SessionRegistrar registerSession, Relays appwardRelays) {
-        this.registerSession = registerSession;
+    public Endpoint(SessionRegistrar sessionRegistrar, Relays appwardRelays) {
+        this.sessionRegistrar = sessionRegistrar;
         this.appwardRelays = appwardRelays;
     }
 
@@ -33,7 +33,10 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         var log = logger.with("connId", connectionId);
         log.debug("connection opened");
 
-        registerSession.register(connectionId, session);
+        if (!sessionRegistrar.register(connectionId, session)) {
+            log.debug("session abandoned");
+            return;
+        }
 
         @SuppressWarnings("unchecked")
         var connectHeaders = (Map<String, List<String>>) config.getUserProperties().get("connectHeaders");

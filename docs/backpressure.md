@@ -113,7 +113,7 @@ further pushes to the same connection queue behind it.
 
 | Knob | Controls |
 |---|---|
-| `pushWaitForRegistration` | How long a push waits for its target connection to finish registering. Applies only to pushes over a *just-opened* connection — one whose id the app already received as part of the new-connection notification but which is not yet available for client-ward traffic. When it expires, the gateway **terminates the connection** and answers 410. See "Why the gateway terminates" below. |
+| `pushWaitForRegistration` | How long a push waits for its target connection to finish registering. Applies only to pushes over a *just-opened* connection — one whose id the app already received as part of the new-connection notification but which is not yet available for client-ward traffic. When it expires, the gateway *flags the connection for termination* and answers 410. See "Why the gateway terminates" below. |
 | `pushToClientWaitTimeout` | How long a push — over a fully functional WebSocket connection — waits for the connection's send path to drain before failing with 429. The push-congestion budget proper. |
 | `pushToClientWaitTimeoutCountPreemptThresholdMinute` | `pushToClientWaitTimeout` expirations per minute above which the gateway sheds subsequent pushes preemptively with 503. |
 
@@ -124,14 +124,15 @@ further pushes to the same connection queue behind it.
 | average send-wait time | How long pushes wait for the connection's send path to free up; the leading indicator of push congestion. |
 | push wait-timeout count | This counts pushes that failed on the wait timeout; input to the `…PreemptThresholdMinute` threshold. |
 | `wsgw.registration.waits` | Connections where a push arrived before the connection had finished establishing (see §3). This counts the *race*, which is benign and normally clears in under a millisecond. It is not a distress signal, and thresholding it would shed load during healthy operation. |
-| `wsgw.registration.timeout.termination` | This counts connections terminated because `pushWaitForRegistration` expired before they registered. Every increment is one connection destroyed and one client forced to reconnect, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to its preempt threshold. |
+| `wsgw.registration.timeout.flagged` | This counts connections flagged for termination because `pushWaitForRegistration` expired before they registered. Every increment is one connection flagged for termination, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to its preempt threshold. |
+| `wsgw.registration.timeout.abandoned` | This gauges the number of connections flagged, but still awaiting termination. |
 
 **Signals.**
 
 | Condition | Signal |
 |---|---|
 | Send path fails to drain within `pushToClientWaitTimeout` | **429** |
-| Connection not registered within `pushWaitForRegistration` | Connection **terminated**; push answers **410 Gone**, no `Retry-After` — see note below |
+| Connection not registered within `pushWaitForRegistration` | Connection **flagged for termination**; push answers **410 Gone**, no `Retry-After` — see note below |
 | `pushToClientWaitTimeoutCountPreemptThresholdMinute` exceeded | **503** + `Retry-After` |
 | Session write error (not backpressure) | **502 Bad Gateway** |
 
@@ -142,9 +143,9 @@ flowchart TD
     R0["Push arrives before connection\nfinishes registering"]
     R0 --> KnobReg{{"pushWaitForRegistration"}}
     KnobReg -->|"registers before it expires"| RaceOK["wsgw.registration.waits\n(metric — benign race, not thresholded)"]
-    KnobReg -->|"still unregistered when it expires"| Terminate["connection terminated"]
-    Terminate --> Sig410(["410 Gone"])
-    Terminate --> MetricTerm["wsgw.registration.timeout.termination\n(metric)"]
+    KnobReg -->|"still unregistered when it expires"| FlagForTermination["connection flagged for termination"]
+    FlagForTermination --> Sig410(["410 Gone"])
+    FlagForTermination --> MetricTerm["wsgw.registration.timeout.flagged\n(metric)"]
     MetricTerm -.->|feeds| Ext1[["§2.2: connection-establishment\npreempt threshold"]]
 
     S0["Push waits for connection's\nsend path to drain"]
@@ -158,13 +159,29 @@ flowchart TD
     WriteErr["session write error\n(not backpressure)"] --> Sig502(["502 Bad Gateway"])
 ```
 
-**Why the gateway terminates the connection.**
+**Why the gateway flags and terminates connections.**
+
+This secton describes behavior which is specific to the Jakarta framework used for
+this implementation: the framework makes the fully functional connection available
+to the application asynchronously in a callback — a remnant of the pre-Loom Java versions
+where load could only be scaled up using reactive mechanisms. Due to this asynchronicity,
+the connection becomes available to both the WebSocket client and the application
+even before it is made available to the gateway implementation (and the gateway becomes able
+to take over managing the traffic over the connection).
 
 When a new WebSocket connection is opened, a sub-millisecond window may be open
 in which the app is notified about the new connection and receives the
 connection id, and the connection is not yet usable. `pushWaitForRegistration`
 is how long the gateway is willing to sit in it before declaring the connection
-a loss, at which point it destroys the connection.
+a loss, at which point it flags the connection for termination. Flagged connections
+don't relay messages coming from the client. A flagged connection
+is terminated when the Jakarta framework finally makes the fully functional connection available
+to the application. The place of the termination has been chosen on the assumption that, if the connection
+establishment went as far as to provide a connection id to the app which came to the gateway
+requesting to push a message over the connection, the Jakarta framework will eventually
+register the connection and removal from the map will eventually happen.
+`wsgw.registration.timeout.abandoned` is gauging the count of connections where termination
+is yet to happen.
 
 ### 2.2 CONNECT — slow connection establishment, client → app
 
@@ -180,7 +197,7 @@ request to the app and only completes the WebSocket upgrade if the app accepts.
 | connect wait timeout | How long the gateway waits for the app's connect acknowledgement before failing with 504. |
 | max in-flight connects | Admission bound on concurrent connection establishments. |
 | preempt hold-down | Once the preempt threshold trips, how long the gateway keeps shedding before it looks at the failure rate again. Also the basis for the `Retry-After` it sends while shedding. |
-| connection-establishment preempt threshold, per minute | Establishment failures per minute above which the gateway sheds *new* connections with 503. Two metrics count toward it: the connect timeout count and the `wsgw.registration.timeout.termination`. Note this is a different knob from §2.1's `pushToClientWaitTimeoutCountPreemptThresholdMinute`, which sheds pushes on connections that already exist; the two never refer to each other, and neither one's breach affects the other's leg. |
+| connection-establishment preempt threshold, per minute | Establishment failures per minute above which the gateway sheds *new* connections with 503. Two metrics count toward it: the connect timeout count and the `wsgw.registration.timeout.flagged`. Note this is a different knob from §2.1's `pushToClientWaitTimeoutCountPreemptThresholdMinute`, which sheds pushes on connections that already exist; the two never refer to each other, and neither one's breach affects the other's leg. |
 
 **Metrics.**
 
@@ -189,13 +206,13 @@ request to the app and only completes the WebSocket upgrade if the app accepts.
 | in-flight connect count | Connection establishments currently awaiting the app. |
 | connect-to-app latency | How long the app takes to acknowledge. |
 | connect timeout count | Connects that exceeded the wait timeout. |
-| `wsgw.registration.timeout.termination` | Connections destroyed because they did not register in time (§2.1). |
+| `wsgw.registration.timeout.flagged` | Connections flagged for termination because they did not register in time (§2.1). |
 
-The connect timeout count and the `wsgw.registration.timeout.termination` both
+The connect timeout count and the `wsgw.registration.timeout.flagged` both
 feed the connection-establishment preempt threshold, and both are counts of
 establishments that failed — the first observed while waiting for the app's
 acknowledgement, the second observed when a push found the connection still not
-ready and terminated it. They differ only in where the failure was noticed.
+ready and flagged it for termination. They differ only in where the failure was noticed.
 Adding them is therefore sound rather than a convenience: the sum is the rate at
 which connection establishment is not completing, which is precisely what the
 threshold exists to watch.
@@ -259,7 +276,7 @@ flowchart TD
     KnobMaxInFlight -->|"breached"| Sig503(["503 + Retry-After"])
 
     MetricTimeoutCount -->|"input to"| KnobPreempt{{"connection-establishment\npreempt threshold"}}
-    ExtTerm[["§2.1: registration-timeout\ntermination count"]] -.->|"input to"| KnobPreempt
+    ExtTerm[["§2.1: wsgw.registration.timeout.flagged"]] -.->|"input to"| KnobPreempt
     KnobPreempt -->|"breached"| KnobHoldDown{{"preempt hold-down"}}
     KnobHoldDown -->|"shedding; Retry-After =\ntime remaining, jittered"| Sig503
     KnobHoldDown -->|"expired — re-evaluate the rate"| KnobPreempt
@@ -362,16 +379,16 @@ visible.
 
 - **Slow CONNECT destroys connections on the PUSH leg.** A push aimed at a
   connection that has not finished establishing must wait for it to become ready.
-  If establishment is slow, those waits expire — and the gateway then terminates
-  the connection and answers **410 on `POST /message`** (see the note in §2.1). So
+  If establishment is slow, those waits expire — and the gateway then flags
+  the connection for termination and answers **410 on `POST /message`** (see the note in §2.1). So
   a slow connect leg does not merely delay pushes; it costs connections, and each
   loss forces a client to reconnect, which feeds more work back into the same
-  slow connect leg. That loop is why the termination count is an input to §2.2's
+  slow connect leg. That loop is why the flagged connection count is an input to §2.2's
   preempt threshold: shedding new connections is what breaks it.
 
   This is distinct from PUSH congestion proper, which answers 429 and leaves the
   connection intact. The two are told apart by which metric moves: a spike in the
-  `wsgw.registration.timeout.termination` points at CONNECT, a spike in average
+  `wsgw.registration.timeout.flagged` points at CONNECT, a spike in average
   send-wait time points at PUSH proper.
 
 - **Slow RELAY has no request-level symptom.** Unable to emit a signal, relay
@@ -384,8 +401,8 @@ visible.
 
 | Leg | Trigger | HTTP request to answer? | Knobs | Key metrics | Signal (when) |
 |---|---|---|---|---|---|
-| **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushToClientWaitTimeout`; `…PreemptThresholdMinute` | avg send-wait; push wait-timeout count; `wsgw.registration.waits`; `wsgw.registration.timeout.termination` | 429 (send-wait timed out); 410 (not registered in time → connection terminated, §3); 503+`Retry-After` (threshold) |
-| **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | connect wait timeout; max in-flight; connection-establishment preempt threshold; preempt hold-down | in-flight connects; connect latency; connect timeout count; `wsgw.registration.timeout.termination` (§2.1) | 504 (app ack timed out); 503+`Retry-After` (admission, or threshold for the rest of the hold-down) |
+| **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushToClientWaitTimeout`; `…PreemptThresholdMinute` | avg send-wait; push wait-timeout count; `wsgw.registration.waits`; `wsgw.registration.timeout.flagged` | 429 (send-wait timed out); 410 (not registered in time → connection flagged for termination, §3); 503+`Retry-After` (threshold) |
+| **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | connect wait timeout; max in-flight; connection-establishment preempt threshold; preempt hold-down | in-flight connects; connect latency; connect timeout count; `wsgw.registration.timeout.flagged` (§2.1) | 504 (app ack timed out); 503+`Retry-After` (admission, or threshold for the rest of the hold-down) |
 | **RELAY** client→app | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout; response deadline; max retries; retry interval | buffer depth/high-water; relay latency; retry & retry-exhaustion counts; block/drop/close counts | none over HTTP → retry → stop reading socket → WS close |
 
 ---
@@ -416,41 +433,11 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
   `SimpleMeterRegistry`, which records the value in memory but exports it
   nowhere — no scrape endpoint yet, so the counter is observable only in-process
   (which is what the unit tests read).
-- **Termination on registration timeout** — `[planned]`. Today the wait simply
-  expires and the push fails; the connection is left alone and may register
-  afterwards, which is the split-brain §2.1 describes. Implementing the contract
-  requires, in outline:
-  - On timeout, replace the connection's pending holder in `WsConnections.conns`
-    with a **tombstone** rather than removing the entry. A bare removal is not
-    enough: the next `register` would find no entry, create a fresh holder, and
-    resurrect the connection the gateway just gave up on.
-  - `register` must check for the tombstone and, instead of publishing the `Conn`,
-    close the session it was handed. Decide inside the `conns.compute` lambda but
-    perform the close *outside* it — `ConcurrentHashMap.compute` holds a bin lock
-    for the duration of the call, and closing a WebSocket session under it invites
-    deadlock.
-  - Tombstones need two different lifetimes. `Session` resources are released when
-    `onClose` fires, but the tombstone itself must outlive that by a grace period;
-    otherwise a subsequent push for the dead id finds no entry, creates a holder,
-    and parks for another full `pushWaitForRegistration` instead of answering 410
-    immediately. A tombstone whose session never arrives at all (client abandoned
-    the upgrade, stale id) gets no `onClose` and must expire on a timer.
-  - `Endpoint.onClose` currently logs "Relay for connection not found" at WARN. A
-    connection terminated before a relay was ever created hits exactly that path,
-    so a routine termination would be logged as a fault.
-- **Close code on termination.** The gateway closes with **1013**
-  (`TRY_AGAIN_LATER`) and a short reason phrase. Verified in
-  `CloseCodeProbeIT`: the code reaches a JDK `java.net.http.WebSocket` client
-  intact, but Tomcat's *client* rewrites 1012–1014 to 1002 (`PROTOCOL_ERROR`),
-  because it validates against RFC 6455's original table, which stops at 1011.
-  This is a defect in that client, not in the gateway — real clients following the
-  current IANA registry see 1013. It matters only for tests: the Jakarta-based
-  clients in `WsTestClients` cannot observe 1013 and must assert on 1002 or on the
-  reason phrase, which survives intact.
-- **410 on a terminated connection** — `[implemented]`.
-- **`pushToClientWaitTimeoutCountPreemptThresholdMinute`**, **push wait-timeout
-  count**, **average send-wait time** metric, **`wsgw.registration.timeout.termination`
-  count**, and `Retry-After` — `[planned]`.
+- **Termination workflow on registration timeout** — `[partial]`. Today, on timeout,
+    1. the connection is flagged for termination and the apps push
+       request is rejected with HTTP 410 *Gone*.
+    2. a flagged connection is closed with **1013** (`TRY_AGAIN_LATER`) and
+       a short reason phrase.
 
 ### 5.2 CONNECT
 
@@ -492,7 +479,8 @@ touch.
 | §2.1 `pushToClientWaitTimeout` (send-desaturation budget) | `Timeouts.getWaitForSendMessageDesaturation`; value from `Configuration.getPushToClientWaitTimeout()` | `[partial]`     | hardcoded 10s; shares the one value with `pushWaitForRegistration`, not independently configurable |
 | §2.1 `pushWaitForRegistration` (race tolerance) | `Timeouts.getPushWaitForRegistration` | `[partial]`     | fed the same 10s via the single-arg `WsConnections` ctor; not separately configurable |
 | §2.1 signal 429 (send-wait timeout) | `MessageRequest.doFilter` (`SendWaitTimedOut` → 429) | `[partial]`     | no `Retry-After` |
-| §2.1 termination on registration timeout | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.push` (`registrationTimeoutTermination` counter) | `[implemented]` | |
+| §2.1 `wsgw.registration.timeout.flagged` | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.push` (`registrationTimeoutFlagged` counter) | `[implemented]` | |
+| §2.1 `wsgw.registration.timeout.abandoned` | `WsConnections` (`Gauge` over `AtomicInteger`); incremented in `push` (`ConnectionGone` catch), decremented in `register` (tombstone path) | `[implemented]` | |
 | §2.1 signal 410 (connection terminated) | `MessageRequest.doFilter` (`ConnectionGone` → 410) | `[implemented]` | |
 | §2.1 close code 1013 on termination | — | `[implemented]` | |
 | §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]`     | |
@@ -501,7 +489,7 @@ touch.
 | §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.2 knobs/metrics/signals (504, 503, admission bound) | `ConnectionRequest.registerWithApp` | `[planned]`     | unbounded blocking on `Request.appClient` (20s TCP connect-timeout, no response deadline); reach failure → 502 |
 | §2.2 preempt hold-down + `Retry-After` = jittered remainder | shared failure-rate window read by `ConnectionRequest.registerWithApp`; incremented there and in `WsConnections.push` | `[planned]`     | the threshold is a *rate*, so a cumulative `Counter` cannot drive it — needs a windowed count as decision state, separate from the export meters; the shed state and its remaining hold-down must be readable where the 503 is written |
-| §2.2 termination count as a threshold input | `WsConnections.push` → `wsgw.registration.timeout.termination` (`Counter`, `leg=push`) | `[partial]`     | counter is recorded; threshold logic and windowed count not yet implemented |
+| §2.2 termination count as a threshold input | `WsConnections.push` → `wsgw.registration.timeout.flagged` (`Counter`, `leg=push`) | `[partial]`     | counter is recorded; threshold logic and windowed count not yet implemented |
 | §2.3 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
 | §2.3 relay enqueue timeout + its three actions + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]`     | no fast-fail, no stop-reading / WS close, no metric |
 | §2.3 relay response deadline | `Request.appClient` | `[planned]`     | no per-request timeout, so nothing bounds a relay the app never answers |
