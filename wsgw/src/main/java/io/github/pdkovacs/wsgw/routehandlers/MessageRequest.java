@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.*;
+import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -37,6 +38,8 @@ public class MessageRequest extends HttpFilter {
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
             messagePusher.push(connectionId, message);
             log.debug("Message pushed to client");
+        } catch (ConnectionGone sendBackpressure) {
+            res.sendError(410 /*Gone*/, "Connection gone");
         } catch (SendWaitTimedOut sendBackpressure) {
             res.sendError(429 /*Too Many Requests*/, "Retry later");
         } catch (Exception e) {

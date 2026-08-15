@@ -447,9 +447,7 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
   current IANA registry see 1013. It matters only for tests: the Jakarta-based
   clients in `WsTestClients` cannot observe 1013 and must assert on 1002 or on the
   reason phrase, which survives intact.
-- **410 on a terminated connection** — `[planned]`. Both waits currently throw the
-  same `SendWaitTimedOut` and land as 429, so the registration timeout is
-  not yet distinguishable from the send-wait at the filter.
+- **410 on a terminated connection** — `[implemented]`.
 - **`pushToClientWaitTimeoutCountPreemptThresholdMinute`**, **push wait-timeout
   count**, **average send-wait time** metric, **`wsgw.registration.timeout.termination`
   count**, and `Retry-After` — `[planned]`.
@@ -489,24 +487,24 @@ Each row anchors one §1–§4 contract element to the code that implements it (
 would), so an implementor can jump straight from "what's missing" to the site to
 touch.
 
-| Contract element | Code site | Status | Gap |
-|---|---|---|---|
-| §2.1 `pushToClientWaitTimeout` (send-desaturation budget) | `Timeouts.getWaitForSendMessageDesaturation`; value from `Configuration.getPushToClientWaitTimeout()` | `[partial]` | hardcoded 10s; shares the one value with `pushWaitForRegistration`, not independently configurable |
-| §2.1 `pushWaitForRegistration` (race tolerance) | `Timeouts.getPushWaitForRegistration` | `[partial]` | fed the same 10s via the single-arg `WsConnections` ctor; not separately configurable |
-| §2.1 signal 429 (send-wait timeout) | `MessageRequest.doFilter` (`SendWaitTimedOut` → 429) | `[partial]` | no `Retry-After`; both waits currently throw the same exception, so registration timeouts also land here as 429 |
-| §2.1 termination on registration timeout | `WsConnections.push` timeout branch (tombstone) + `WsConnections.register` (close) | `[planned]` | today the wait just expires and the connection survives → the split-brain §2.1 describes; needs the tombstone, its two lifetimes, and the `onClose` WARN fixed |
-| §2.1 signal 410 (connection terminated) | `WsConnections.push` timeout branch → `MessageRequest.doFilter` | `[planned]` | today maps to 429; both waits throw the same `SendWaitTimedOut`, so the registration timeout must be distinguished from the send-wait before it can map to 410 |
-| §2.1 close code 1013 on termination | — | `[planned]` | code choice verified by `CloseCodeProbeIT`; Tomcat's client rewrites it to 1002, so tests must assert 1002 or the reason phrase |
-| §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]` | |
-| §2.1 metric push wait-timeout count | — | `[planned]` | feeds the 503 threshold |
-| §2.1 metric average send-wait time | — | `[planned]` | |
-| §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]` | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
-| §2.2 knobs/metrics/signals (504, 503, admission bound) | `ConnectionRequest.registerWithApp` | `[planned]` | unbounded blocking on `Request.appClient` (20s TCP connect-timeout, no response deadline); reach failure → 502 |
-| §2.2 preempt hold-down + `Retry-After` = jittered remainder | shared failure-rate window read by `ConnectionRequest.registerWithApp`; incremented there and in `WsConnections.push` | `[planned]` | the threshold is a *rate*, so a cumulative `Counter` cannot drive it — needs a windowed count as decision state, separate from the export meters; the shed state and its remaining hold-down must be readable where the 503 is written |
-| §2.2 termination count as a threshold input | — | `[planned]` | blocked on the §2.1 termination row above: until registration timeouts terminate and are counted, there is nothing to feed the threshold |
+| Contract element | Code site | Status          | Gap |
+|---|---|-----------------|---|
+| §2.1 `pushToClientWaitTimeout` (send-desaturation budget) | `Timeouts.getWaitForSendMessageDesaturation`; value from `Configuration.getPushToClientWaitTimeout()` | `[partial]`     | hardcoded 10s; shares the one value with `pushWaitForRegistration`, not independently configurable |
+| §2.1 `pushWaitForRegistration` (race tolerance) | `Timeouts.getPushWaitForRegistration` | `[partial]`     | fed the same 10s via the single-arg `WsConnections` ctor; not separately configurable |
+| §2.1 signal 429 (send-wait timeout) | `MessageRequest.doFilter` (`SendWaitTimedOut` → 429) | `[partial]`     | no `Retry-After` |
+| §2.1 termination on registration timeout | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.push` (`registrationTimeoutTermination` counter) | `[implemented]` | |
+| §2.1 signal 410 (connection terminated) | `MessageRequest.doFilter` (`ConnectionGone` → 410) | `[implemented]` | |
+| §2.1 close code 1013 on termination | — | `[implemented]` | |
+| §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]`     | |
+| §2.1 metric push wait-timeout count | — | `[planned]`     | feeds the 503 threshold |
+| §2.1 metric average send-wait time | — | `[planned]`     | |
+| §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
+| §2.2 knobs/metrics/signals (504, 503, admission bound) | `ConnectionRequest.registerWithApp` | `[planned]`     | unbounded blocking on `Request.appClient` (20s TCP connect-timeout, no response deadline); reach failure → 502 |
+| §2.2 preempt hold-down + `Retry-After` = jittered remainder | shared failure-rate window read by `ConnectionRequest.registerWithApp`; incremented there and in `WsConnections.push` | `[planned]`     | the threshold is a *rate*, so a cumulative `Counter` cannot drive it — needs a windowed count as decision state, separate from the export meters; the shed state and its remaining hold-down must be readable where the 503 is written |
+| §2.2 termination count as a threshold input | `WsConnections.push` → `wsgw.registration.timeout.termination` (`Counter`, `leg=push`) | `[partial]`     | counter is recorded; threshold logic and windowed count not yet implemented |
 | §2.3 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
-| §2.3 relay enqueue timeout + its three actions + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]` | no fast-fail, no stop-reading / WS close, no metric |
-| §2.3 relay response deadline | `Request.appClient` | `[planned]` | no per-request timeout, so nothing bounds a relay the app never answers |
-| §2.3 retry-then-close escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]` | blocked on the deadline row above — there is no expiry event to retry from; also needs the at-least-once duplicate tolerance stated in §2.3 agreed with the app side |
-| §2.3 metrics relay retry count / retry-exhaustion count | — | `[planned]` | retry-exhaustion is the leg's distress signal; no meter yet |
-| §1 uniform `Retry-After` on 429/503 | — | `[planned]` | |
+| §2.3 relay enqueue timeout + its three actions + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]`     | no fast-fail, no stop-reading / WS close, no metric |
+| §2.3 relay response deadline | `Request.appClient` | `[planned]`     | no per-request timeout, so nothing bounds a relay the app never answers |
+| §2.3 retry-then-close escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]`     | blocked on the deadline row above — there is no expiry event to retry from; also needs the at-least-once duplicate tolerance stated in §2.3 agreed with the app side |
+| §2.3 metrics relay retry count / retry-exhaustion count | — | `[planned]`     | retry-exhaustion is the leg's distress signal; no meter yet |
+| §1 uniform `Retry-After` on 429/503 | — | `[planned]`     | |

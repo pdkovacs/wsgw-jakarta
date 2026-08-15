@@ -118,7 +118,10 @@ public class ConnectionIT {
         HttpRequest request2 = HttpRequest.newBuilder(disconnectFromAppUrl2)
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .build();
-        wsgwTestContext.httpClient.send(request2, HttpResponse.BodyHandlers.discarding());
+        var response = wsgwTestContext.httpClient.send(request2, HttpResponse.BodyHandlers.discarding());
+
+        assertThat(response).isNotNull();
+        assertThat(response.statusCode()).isEqualTo(200);
 
         var nextMessage1 = wsTestClient1.messageInbox().take();
         log.debug("nextMessage={}", nextMessage1);

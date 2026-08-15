@@ -93,6 +93,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         var conn = conns.remove(connectionId);
         if (conn == null) {
             mLogger.warn("No connection with id {}", connectionId);
+            return;
         }
         conn.close();
     }
