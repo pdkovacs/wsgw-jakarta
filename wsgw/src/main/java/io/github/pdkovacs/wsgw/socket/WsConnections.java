@@ -57,6 +57,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     public void push(String connectionId, String message) throws SendWaitTimedOut, IOException, InterruptedException {
         var mLogger = logger.with("method", "push").with("connectionId", connectionId);
+        var waitedForRegistration = new boolean[] { false };
         var conn = this.conns.compute(connectionId, (_, existing) -> {
             if (existing == null) {
                 // This push is going to create the holder, so no registration preceded it: the connection hit
@@ -64,8 +65,10 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                 // the wait times out). Counted once per raced connection -- later pushes that pile
                 // onto the same not-yet-registered holder find it already present and are not
                 // recounted, so the metric measures race incidence, not parked-wait volume.
-                mLogger.debug("push arrived before register; parking until registration");
-                registrationWaits.increment();
+                mLogger.debug(
+                        "push arrived before register; parking until registration for {} millis",
+                        timeouts.pushWaitForRegistration().toMillis());
+                waitedForRegistration[0] = true;
                 return new WsConnection(connectionId);
             }
             return existing;
@@ -73,10 +76,15 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
         try {
              conn.sendMessage(message, timeouts);
+             if (waitedForRegistration[0]) {
+                 // message sent -> wait was benign
+                 registrationWaits.increment();
+             }
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
-        } catch (ConnectionGone e) {
+        } catch (ConnectionGone connectionGone) {
             registrationTimeoutTermination.increment();
+            throw connectionGone;
         }
     }
 

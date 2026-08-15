@@ -61,11 +61,11 @@ class WsConnection {
 
     public void sendMessage(String message, Timeouts timeouts) throws IOException, InterruptedException, ExecutionException {
         waitForSessionRegistrationToComplete(timeouts.pushWaitForRegistration());
-        sendMessage0(message, timeouts.pushWaitForSendMessageDesaturation());
+        sendMessageSessionAssumed(message, timeouts.pushWaitForSendMessageDesaturation());
     }
 
     private void waitForSessionRegistrationToComplete(Duration pushWaitForRegistration) throws InterruptedException {
-        var mLogger = logger.with("connectionId", connectionId).with("method", "getSession");
+        var mLogger = logger.with("connectionId", connectionId).with("method", "waitForSessionRegistrationToComplete");
         if (registeredSession != null) {
             mLogger.debug("Registered connection found");;
             return;
@@ -73,8 +73,10 @@ class WsConnection {
 
         synchronized (registrationLock) {
             Session session;
-            mLogger.debug("waiting for session...");
-            registrationLock.wait(pushWaitForRegistration.toMillis());
+            if (!pushWaitForRegistration.isZero()) { // Mimic the semantics of Future.get(...) for zero
+                mLogger.debug("waiting for session...");
+                registrationLock.wait(pushWaitForRegistration.toMillis());
+            }
             if (registeredSession == null) {
                 mLogger.warn("No session");
                 registrationTooLate = true;
@@ -84,7 +86,7 @@ class WsConnection {
         }
     }
 
-    private void sendMessage0(String message, Duration waitForSendMessageDesaturation) throws IOException, InterruptedException {
+    private void sendMessageSessionAssumed(String message, Duration waitForSendMessageDesaturation) throws IOException, InterruptedException {
         var mLogger = logger.with("connectionId", connectionId).with("method", "sendMessage");
         if (registeredSession == null) {
             mLogger.warn("No registered session");

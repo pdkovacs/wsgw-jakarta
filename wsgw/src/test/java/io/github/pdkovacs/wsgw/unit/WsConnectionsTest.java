@@ -1,17 +1,21 @@
 package io.github.pdkovacs.wsgw.unit;
 
+import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.socket.Timeouts;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.websocket.CloseReason;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.mockito.ArgumentCaptor;
 import org.mockito.stubbing.Answer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 
+@Timeout(5)
 public class WsConnectionsTest {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
@@ -49,6 +54,9 @@ public class WsConnectionsTest {
         // arms where no push ever raced -- the count, not a MeterNotFoundException, is the signal.
         int registrationWaits() {
             return (int) registry.get("wsgw.registration.waits").tag("leg", "push").counter().count();
+        }
+        int registrationTimeoutTermination() {
+            return (int) registry.get("wsgw.registration.timeout.termination").tag("leg", "push").counter().count();
         }
     }
 
@@ -213,30 +221,41 @@ public class WsConnectionsTest {
 
         assertThat(iterationCount).isLessThan(1000);
         assertThat(underTest.registrationWaits()).isEqualTo(1);
+        assertThat(underTest.registrationTimeoutTermination()).isEqualTo(0);
         verify(mockedBasicRemote, times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
     @Test
-    @DisplayName("register never lands → registration-timeout failure")
-    void pushTimesOutWhenRegisterNeverArrives() {
+    @DisplayName("register never lands → ConnectionGone thrown, connection terminated, wsgw.registration.timeout.termination incremented")
+    void pushTimesOutWhenRegisterNeverArrives() throws IOException {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
+        reset(mockedSession); // resets the call getBasicRemote();
         var underTest = newConnections(Duration.ZERO);
 
         try {
             underTest.connections().push(testConnectionId, testMessage);
-            throw new AssertionError("Should have thrown a SendWaitTimedOut");
+            throw new AssertionError("Should have thrown a ConnectionGone");
         } catch (Exception e) {
-            assertThat(e).isInstanceOf(SendWaitTimedOut.class);
-            var sbe = (SendWaitTimedOut) e;
-            assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
+            assertThat(e).isInstanceOf(ConnectionGone.class);
+            var connectionGone = (ConnectionGone) e;
+            assertThat(connectionGone.getConnectionId()).isEqualTo(testConnectionId);
         }
 
-        assertThat(underTest.registrationWaits()).isEqualTo(1);
+        assertThat(underTest.registrationWaits()).isEqualTo(0);
+        assertThat(underTest.registrationTimeoutTermination()).isEqualTo(1);
         verifyNoMoreInteractions(mockedBasicRemote);
+        verifyNoMoreInteractions(mockedSession);
+
+        underTest.connections().register(testConnectionId, mockedSession);
+
+        var captor = ArgumentCaptor.forClass(CloseReason.class);
+        verify(mockedSession, times(1)).close(captor.capture());
+        assertThat(captor.getValue().getCloseCode()).isEqualTo(CloseReason.CloseCodes.TRY_AGAIN_LATER);
+        assertThat(captor.getValue().getReasonPhrase()).isEqualTo("registration too late");
     }
 
     @Test
