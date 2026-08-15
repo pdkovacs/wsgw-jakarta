@@ -8,23 +8,13 @@ import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.websocket.CloseReason;
 import jakarta.websocket.Session;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.NoSuchElementException;
 import java.util.concurrent.*;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 public class WsConnections implements SessionRegistrar, MessagePusher, SessionCloser {
-
-    public interface Timeouts {
-        Duration getPushWaitForRegistration();
-
-        Duration getWaitForSendMessageDesaturation();
-    }
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
@@ -38,17 +28,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
 
     public WsConnections(Duration pushToClientWaitTimeout, MeterRegistry registry) {
-        this(new Timeouts() {
-            @Override
-            public Duration getPushWaitForRegistration() {
-                return pushToClientWaitTimeout;
-            }
-
-            @Override
-            public Duration getWaitForSendMessageDesaturation() {
-                return pushToClientWaitTimeout;
-            }
-        }, registry);
+        this(new Timeouts(pushToClientWaitTimeout, pushToClientWaitTimeout), registry);
     }
 
     public WsConnections(Timeouts timeouts, MeterRegistry registry) {
@@ -92,7 +72,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         });
 
         try {
-             conn.sendMessage(message, timeouts.getPushWaitForRegistration(), timeouts.getWaitForSendMessageDesaturation());
+             conn.sendMessage(message, timeouts);
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (ConnectionGone e) {

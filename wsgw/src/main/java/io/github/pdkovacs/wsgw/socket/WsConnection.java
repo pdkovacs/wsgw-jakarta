@@ -8,9 +8,7 @@ import jakarta.websocket.Session;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -61,12 +59,12 @@ class WsConnection {
         }
     }
 
-    public void sendMessage(String message, Duration pushWaitForRegistrationMs, Duration waitForSendMessageDesaturationMs) throws IOException, InterruptedException, ExecutionException {
-        waitForSessionRegistrationToComplete(pushWaitForRegistrationMs);
-        sendMessage0(message, waitForSendMessageDesaturationMs);
+    public void sendMessage(String message, Timeouts timeouts) throws IOException, InterruptedException, ExecutionException {
+        waitForSessionRegistrationToComplete(timeouts.pushWaitForRegistration());
+        sendMessage0(message, timeouts.pushWaitForSendMessageDesaturation());
     }
 
-    private void waitForSessionRegistrationToComplete(Duration pushWaitForRegistrationMs) throws InterruptedException {
+    private void waitForSessionRegistrationToComplete(Duration pushWaitForRegistration) throws InterruptedException {
         var mLogger = logger.with("connectionId", connectionId).with("method", "getSession");
         if (registeredSession != null) {
             mLogger.debug("Registered connection found");;
@@ -76,7 +74,7 @@ class WsConnection {
         synchronized (registrationLock) {
             Session session;
             mLogger.debug("waiting for session...");
-            registrationLock.wait(pushWaitForRegistrationMs.toMillis());
+            registrationLock.wait(pushWaitForRegistration.toMillis());
             if (registeredSession == null) {
                 mLogger.warn("No session");
                 registrationTooLate = true;
@@ -86,15 +84,15 @@ class WsConnection {
         }
     }
 
-    private void sendMessage0(String message, Duration waitForSendMessageDesaturationMs) throws IOException, InterruptedException {
+    private void sendMessage0(String message, Duration waitForSendMessageDesaturation) throws IOException, InterruptedException {
         var mLogger = logger.with("connectionId", connectionId).with("method", "sendMessage");
         if (registeredSession == null) {
             mLogger.warn("No registered session");
             throw new IllegalStateException("No registered session");
         }
-        mLogger.debug("about to wait {} millis for sendLock", waitForSendMessageDesaturationMs);
-        if (!sendLock.tryLock(waitForSendMessageDesaturationMs.toMillis(), MILLISECONDS)) {
-            mLogger.debug("failed to acquire sendLock", waitForSendMessageDesaturationMs);
+        mLogger.debug("about to wait {} for sendLock", waitForSendMessageDesaturation);
+        if (!sendLock.tryLock(waitForSendMessageDesaturation.toMillis(), MILLISECONDS)) {
+            mLogger.debug("failed to acquire sendLock", waitForSendMessageDesaturation);
             throw new SendWaitTimedOut(connectionId);
         }
         try {

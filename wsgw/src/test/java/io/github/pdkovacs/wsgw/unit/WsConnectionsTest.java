@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
+import io.github.pdkovacs.wsgw.socket.Timeouts;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -61,17 +62,7 @@ public class WsConnectionsTest {
 
     private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration, Duration waitForSendMessageDesaturation) {
         var registry = new SimpleMeterRegistry();
-        var timeouts = new WsConnections.Timeouts() {
-            @Override
-            public Duration getPushWaitForRegistration() {
-                return pushWaitForRegistration;
-            }
-
-            @Override
-            public Duration getWaitForSendMessageDesaturation() {
-                return waitForSendMessageDesaturation;
-            }
-        };
+        var timeouts = new Timeouts(pushWaitForRegistration, waitForSendMessageDesaturation);
         return new ConnectionsUnderTest(new WsConnections(timeouts, registry), registry);
     }
 

@@ -402,10 +402,10 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
 - **429 on timeout** — `[partial]`. `MessageRequest` returns 429 (`"Retry later"`)
   when `push` throws `SendWaitTimedOut`. No `Retry-After` header yet.
 - **The two waits behind §2.1's two knobs** — `[partial]`. `push` runs the two
-  waits sequentially through the `Timeouts` interface: `getPushWaitForRegistration`
+  waits sequentially through the `Timeouts` interface: `pushWaitForRegistration`
   (→ §2.1 `pushWaitForRegistration`) is the *patient* wait absorbing the
   push-before-register race (Tomcat runs `onOpen` after the 101 is flushed), then
-  `getWaitForSendMessageDesaturation` (→ §2.1 `pushToClientWaitTimeout`) is the
+  `pushWaitForSendMessageDesaturation` (→ §2.1 `pushToClientWaitTimeout`) is the
   *fast-fail* wait on the per-session send lock (a `ReentrantLock`). wsgw is wired
   through the single-arg `WsConnections` constructor, which feeds one hardcoded
   value (10s) to **both**, so the two knobs are not yet separately configurable.
