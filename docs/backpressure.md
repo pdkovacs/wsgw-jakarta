@@ -27,7 +27,7 @@ suffix.
 | Meter | Micrometer name | Prometheus exposition |
 |---|---|---|
 | `Counter` | `wsgw.registration.waits` | `wsgw_registration_waits_total` |
-| `Timer` | `wsgw.some.wait` (placeholder) | `wsgw_some_wait_seconds_count`, `…_sum`, `…_max` |
+| `Timer` | `wsgw.send_lock.wait` | `wsgw_send_lock_wait_seconds_count`, `…_sum`, `…_max` |
 
 So a name from this document is not always paste-able into a Prometheus query —
 derive it, or read it off the exporter. Note also that a *statistic* is not a
@@ -121,7 +121,7 @@ further pushes to the same connection queue behind it.
 
 | Metric | Meaning |
 |---|---|
-| average send-wait time | How long pushes wait for the connection's send path to free up; the leading indicator of push congestion. |
+| `wsgw.send_lock.wait` | How long pushes wait for the connection's send path to free up; the leading indicator of push congestion. Recorded around the `sendLock` acquisition itself, so a wait that ends in a timeout (→ 429) is included alongside successful acquisitions. |
 | push wait-timeout count | This counts pushes that failed on the wait timeout; input to the `…PreemptThresholdMinute` threshold. |
 | `wsgw.registration.waits` | Connections where a push arrived before the connection had finished establishing (see §3). This counts the *race*, which is benign and normally clears in under a millisecond. It is not a distress signal, and thresholding it would shed load during healthy operation. |
 | `wsgw.registration.timeout.flagged` | This counts connections flagged for termination because `pushWaitForRegistration` expired before they registered. Every increment is one connection flagged for termination, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to its preempt threshold. |
@@ -149,7 +149,7 @@ flowchart TD
     MetricTerm -.->|feeds| Ext1[["§2.2: connection-establishment\npreempt threshold"]]
 
     S0["Push waits for connection's\nsend path to drain"]
-    S0 --> MetricAvg["average send-wait time\n(metric — leading indicator only)"]
+    S0 --> MetricAvg["wsgw.send_lock.wait\n(metric — leading indicator only)"]
     S0 -->|"still waiting when\npushToClientWaitTimeout expires"| KnobSend{{"pushToClientWaitTimeout"}}
     KnobSend --> Sig429(["429"])
     KnobSend --> MetricWaitCount["push wait-timeout count\n(metric)"]
@@ -433,6 +433,10 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
   `SimpleMeterRegistry`, which records the value in memory but exports it
   nowhere — no scrape endpoint yet, so the counter is observable only in-process
   (which is what the unit tests read).
+- **Average send-wait time** — `[partial]`. A Micrometer `Timer`,
+  `wsgw.send_lock.wait` tagged `leg=push`, wraps the `sendLock.tryLock` call in
+  `WsConnection.sendMessage` and records the wait whether it succeeds or times
+  out. Same `SimpleMeterRegistry` caveat as above — recorded, not exported.
 - **Termination workflow on registration timeout** — `[partial]`. Today, on timeout,
     1. the connection is flagged for termination and the apps push
        request is rejected with HTTP 410 *Gone*.
@@ -485,7 +489,7 @@ touch.
 | §2.1 close code 1013 on termination | — | `[implemented]` | |
 | §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]`     | |
 | §2.1 metric push wait-timeout count | — | `[planned]`     | feeds the 503 threshold |
-| §2.1 metric average send-wait time | — | `[planned]`     | |
+| §2.1 metric average send-wait time | `WsConnection.sendMessage` → `wsgw.send_lock.wait` (`Timer`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.2 knobs/metrics/signals (504, 503, admission bound) | `ConnectionRequest.registerWithApp` | `[planned]`     | unbounded blocking on `Request.appClient` (20s TCP connect-timeout, no response deadline); reach failure → 502 |
 | §2.2 preempt hold-down + `Retry-After` = jittered remainder | shared failure-rate window read by `ConnectionRequest.registerWithApp`; incremented there and in `WsConnections.push` | `[planned]`     | the threshold is a *rate*, so a cumulative `Counter` cannot drive it — needs a windowed count as decision state, separate from the export meters; the shed state and its remaining hold-down must be readable where the 503 is written |

@@ -18,6 +18,7 @@ class WsConnection {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnection.class);
 
+    private final Timer sendLockWait;
     private final String connectionId;
     private final Object registrationLock = new Object();
     private final ReentrantLock sendLock;
@@ -25,9 +26,10 @@ class WsConnection {
     private volatile Session registeredSession;
     private boolean registrationTooLate = false;
 
-    public WsConnection(String connectionId) {
+    public WsConnection(String connectionId, Timer sendLockWait) {
         sendLock = new ReentrantLock();
         this.connectionId = connectionId;
+        this.sendLockWait = sendLockWait;
     }
 
     public void close() throws IOException {
@@ -104,10 +106,16 @@ class WsConnection {
             mLogger.warn("No registered session");
             throw new IllegalStateException("No registered session");
         }
-        mLogger.debug("about to wait {} for sendLock", waitForSendMessageDesaturation);
-        if (!sendLock.tryLock(waitForSendMessageDesaturation.toMillis(), MILLISECONDS)) {
-            mLogger.debug("failed to acquire sendLock", waitForSendMessageDesaturation);
-            throw new SendWaitTimedOut(connectionId);
+        mLogger.debug("about to wait for sendLock");
+        var start = System.nanoTime();
+        try {
+            if (!sendLock.tryLock(waitForSendMessageDesaturation.toMillis(), MILLISECONDS)) {
+                mLogger.debug("failed to acquire sendLock", waitForSendMessageDesaturation);
+                throw new SendWaitTimedOut(connectionId);
+            }
+        } finally {
+            var end = System.nanoTime();
+            sendLockWait.record(Duration.ofNanos(end - start));
         }
         try {
             mLogger.debug("acquired sendLock");
