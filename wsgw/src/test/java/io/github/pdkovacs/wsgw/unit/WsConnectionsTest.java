@@ -6,6 +6,7 @@ import io.github.pdkovacs.wsgw.socket.Timeouts;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.websocket.CloseReason;
 import jakarta.websocket.RemoteEndpoint;
@@ -63,6 +64,10 @@ public class WsConnectionsTest {
         int registrationTimeoutAbondoned() {
             return (int) registry.get("wsgw.registration.timeout.abandoned").tag("leg", "push").gauge().value();
         }
+
+        Timer sendWait() {
+            return registry.get("wsgw.send_lock.wait").tag("leg", "push").timer();
+        }
     }
 
     private ConnectionsUnderTest newConnections() {
@@ -86,11 +91,13 @@ public class WsConnectionsTest {
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var connections = new WsConnections(Duration.ofSeconds(5), Duration.ofSeconds(5), new SimpleMeterRegistry());
+        var underTest = newConnections();
+        var connections = underTest.connections();
 
         connections.register(testConnectionId, mockedSession);
         connections.push(testConnectionId, testMessage);
 
+        assertThat(underTest.sendWait().mean(TimeUnit.MICROSECONDS)).isLessThan(TimeUnit.SECONDS.toMicros(1));
         verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
@@ -267,24 +274,27 @@ public class WsConnectionsTest {
 
     @Test
     @DisplayName("send-path busy → backpressure failure")
-    void pushFailsFastWhenSendPathSaturated() throws IOException {
+    void pushFailsFastWhenSendPathSaturated() throws IOException, InterruptedException {
         var tcLogger = logger.with("method", "testPushFailsFastWhenSendPathSaturated");
         var testConnectionId = "some connection-id";
         var testMessage1 = "some message";
         var testMessage2 = "some other message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var underTest = newConnections(Duration.ZERO, Duration.ofMillis(50));
+        var sendPathDesaturationTimeoutSecs = 3;
+        var underTest = newConnections(Duration.ZERO, Duration.ofSeconds(sendPathDesaturationTimeoutSecs));
 
-        var blockerToBlock = new CountDownLatch(1);
-        var blockingLatch = new CountDownLatch(1);
+        var blockingStart = new CountDownLatch(1);
+        var blockingEnd = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             try {
                 underTest.connections().register(testConnectionId, mockedSession);
                 doAnswer((Answer<Void>) invocation -> {
-                    blockerToBlock.countDown();
-                    tcLogger.debug("blocker to block");
-                    blockingLatch.await();
+                    var logger = tcLogger.with("thread", Thread.currentThread().threadId());
+                    blockingStart.countDown(); // safe for the next one to start.
+                    logger.debug("blocker to sleep...");
+                    logger.debug("blocker to block...");
+                    blockingEnd.await(); // wait until the other finishes
                     return null;
                 }).when(mockedBasicRemote).sendText(testMessage1);
                 executor.submit(() -> {
@@ -293,17 +303,19 @@ public class WsConnectionsTest {
                 });
 
                 tcLogger.debug("awaiting blocker to block");
-                blockerToBlock.await();
+                blockingStart.await(); // wait until the previous one is ready for blocking.
                 tcLogger.debug("blocker is blocking");
                 underTest.connections().push(testConnectionId, testMessage2);
                 throw new AssertionError("Should have thrown a SendWaitTimedOut");
             } catch (Exception e) {
-                tcLogger.debug("Exception from test action: {}", e.getMessage());
+                tcLogger.debug("Exception from test action: {}", e.getClass().getSimpleName());
                 assertThat(e).isInstanceOf(SendWaitTimedOut.class);
                 var sbe = (SendWaitTimedOut) e;
                 assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
             } finally {
-                blockingLatch.countDown();
+                blockingEnd.countDown(); // the previous one can unblock now.
+                assertThat(underTest.sendWait().count()).isEqualTo(2);
+                assertThat(underTest.sendWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
             }
         }
     }

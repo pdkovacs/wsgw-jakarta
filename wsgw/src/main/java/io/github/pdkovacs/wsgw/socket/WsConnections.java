@@ -18,16 +18,26 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
+    private record Meters(Counter registrationWaits, Counter registrationTimeoutFlagged,
+                          AtomicInteger registrationTimeoutAbandonedDelegate, Timer sendLockWait) {
+        static Meters create(MeterRegistry registry) {
+            Counter registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
+            Counter registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
+           AtomicInteger registrationTimeoutAbandonedDelegate = new AtomicInteger(0);
+            Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandonedDelegate, AtomicInteger::get)
+                    .tag("leg", "push")
+                    .register(registry);
+            Timer sendLockWait = registry.timer("wsgw.send_lock.wait", "leg", "push");
+
+            return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandonedDelegate, sendLockWait);
+        }
+    }
+
     private final Timeouts timeouts;
-    // The leg tag is single-valued today; it exists so this meter shares the backpressure
-    // family's query shape, not because other legs wait. Registered eagerly (at 0) so the series is
-    // observable before the first race and reads never miss.
-    private final Counter registrationWaits;
-    private final Counter registrationTimeoutFlagged;
+    private final Meters meters;
+
 
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
-    private final AtomicInteger registrationTimeoutAbandonedDelegate = new AtomicInteger(0);
-    private final Gauge registrationTimeoutAbandoned;
 
     public WsConnections(Duration pushToClientWaitTimeout, Duration pushWaitForSendMessageDesaturation, MeterRegistry registry) {
         this(new Timeouts(pushToClientWaitTimeout, pushWaitForSendMessageDesaturation), registry);
@@ -35,11 +45,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     public WsConnections(Timeouts timeouts, MeterRegistry registry) {
         this.timeouts = timeouts;
-        this.registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
-        this.registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
-        this.registrationTimeoutAbandoned = Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandonedDelegate, AtomicInteger::get)
-                .tag("leg", "push")
-                .register(registry);
+        this.meters = Meters.create(registry);
     }
 
     public boolean register(String connectionId, Session session) {
@@ -48,12 +54,12 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         try {
             var conn = this.conns.compute(connectionId, (_, existing) -> {
                 mLogger.debug("computing connection: exiting={}", existing);
-                var connection = existing != null ? existing : new WsConnection(connectionId);
+                var connection = existing != null ? existing : new WsConnection(connectionId, meters.sendLockWait());
                 return connection;
             });
             if (!conn.registerSession(session)) {
                 conns.remove(connectionId);
-                registrationTimeoutAbandonedDelegate.decrementAndGet();
+                meters.registrationTimeoutAbandonedDelegate.decrementAndGet();
                 return false;
             }
             return true;
@@ -77,7 +83,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                         "push arrived before register; parking until registration for {} millis",
                         timeouts.pushWaitForRegistration().toMillis());
                 waitedForRegistration[0] = true;
-                return new WsConnection(connectionId);
+                return new WsConnection(connectionId, meters.sendLockWait);
             }
             return existing;
         });
@@ -86,13 +92,13 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             conn.sendMessage(message, timeouts);
             if (waitedForRegistration[0]) {
                 // message sent -> wait was benign
-                registrationWaits.increment();
+                meters.registrationWaits.increment();
             }
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (ConnectionGone connectionGone) {
-            registrationTimeoutFlagged.increment();
-            registrationTimeoutAbandonedDelegate.incrementAndGet();
+            meters.registrationTimeoutFlagged.increment();
+            meters.registrationTimeoutAbandonedDelegate.incrementAndGet();
             throw connectionGone;
         }
     }
