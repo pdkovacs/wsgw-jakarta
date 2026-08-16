@@ -6,13 +6,13 @@ import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.*;
 import jakarta.websocket.Session;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class WsConnections implements SessionRegistrar, MessagePusher, SessionCloser {
 
@@ -23,18 +23,23 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     // family's query shape, not because other legs wait. Registered eagerly (at 0) so the series is
     // observable before the first race and reads never miss.
     private final Counter registrationWaits;
-    private final Counter registrationTimeoutTermination;
+    private final Counter registrationTimeoutFlagged;
 
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
+    private final AtomicInteger registrationTimeoutAbandonedDelegate = new AtomicInteger(0);
+    private final Gauge registrationTimeoutAbandoned;
 
-    public WsConnections(Duration pushToClientWaitTimeout, MeterRegistry registry) {
-        this(new Timeouts(pushToClientWaitTimeout, pushToClientWaitTimeout), registry);
+    public WsConnections(Duration pushToClientWaitTimeout, Duration pushWaitForSendMessageDesaturation, MeterRegistry registry) {
+        this(new Timeouts(pushToClientWaitTimeout, pushWaitForSendMessageDesaturation), registry);
     }
 
     public WsConnections(Timeouts timeouts, MeterRegistry registry) {
         this.timeouts = timeouts;
         this.registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
-        this.registrationTimeoutTermination = registry.counter("wsgw.registration.timeout.termination", "leg", "push");
+        this.registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
+        this.registrationTimeoutAbandoned = Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandonedDelegate, AtomicInteger::get)
+                .tag("leg", "push")
+                .register(registry);
     }
 
     public boolean register(String connectionId, Session session) {
@@ -48,6 +53,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             });
             if (!conn.registerSession(session)) {
                 conns.remove(connectionId);
+                registrationTimeoutAbandonedDelegate.decrementAndGet();
                 return false;
             }
             return true;
@@ -59,7 +65,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     public void push(String connectionId, String message) throws SendWaitTimedOut, IOException, InterruptedException {
         var mLogger = logger.with("method", "push").with("connectionId", connectionId);
-        var waitedForRegistration = new boolean[] { false };
+        var waitedForRegistration = new boolean[]{false};
         var conn = this.conns.compute(connectionId, (_, existing) -> {
             if (existing == null) {
                 // This push is going to create the holder, so no registration preceded it: the connection hit
@@ -77,15 +83,16 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         });
 
         try {
-             conn.sendMessage(message, timeouts);
-             if (waitedForRegistration[0]) {
-                 // message sent -> wait was benign
-                 registrationWaits.increment();
-             }
+            conn.sendMessage(message, timeouts);
+            if (waitedForRegistration[0]) {
+                // message sent -> wait was benign
+                registrationWaits.increment();
+            }
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (ConnectionGone connectionGone) {
-            registrationTimeoutTermination.increment();
+            registrationTimeoutFlagged.increment();
+            registrationTimeoutAbandonedDelegate.incrementAndGet();
             throw connectionGone;
         }
     }

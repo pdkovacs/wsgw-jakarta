@@ -68,7 +68,10 @@ public class Wsgw {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
-        WsConnections wsConnections = new WsConnections(this.configuration.getPushToClientWaitTimeout(), meterRegistry);
+        WsConnections wsConnections = new WsConnections(
+                this.configuration.getPushToClientWaitTimeout(),
+                this.configuration.getPushWaitForSendMessageDesaturation(),
+                meterRegistry);
 
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the

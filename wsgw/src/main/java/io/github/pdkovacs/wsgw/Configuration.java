@@ -41,4 +41,8 @@ public class Configuration {
     public Duration getPushToClientWaitTimeout() {
         return Duration.ofSeconds(10);
     }
+
+    public Duration getPushWaitForSendMessageDesaturation() {
+        return Duration.ofSeconds(10);
+    }
 }
