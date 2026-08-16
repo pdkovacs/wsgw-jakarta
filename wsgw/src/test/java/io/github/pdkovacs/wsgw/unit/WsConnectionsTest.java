@@ -55,8 +55,13 @@ public class WsConnectionsTest {
         int registrationWaits() {
             return (int) registry.get("wsgw.registration.waits").tag("leg", "push").counter().count();
         }
-        int registrationTimeoutTermination() {
-            return (int) registry.get("wsgw.registration.timeout.termination").tag("leg", "push").counter().count();
+
+        int registrationTimeoutFlagged() {
+            return (int) registry.get("wsgw.registration.timeout.flagged").tag("leg", "push").counter().count();
+        }
+
+        int registrationTimeoutAbondoned() {
+            return (int) registry.get("wsgw.registration.timeout.abandoned").tag("leg", "push").gauge().value();
         }
     }
 
@@ -81,7 +86,7 @@ public class WsConnectionsTest {
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var connections = new WsConnections(Duration.ofSeconds(5), new SimpleMeterRegistry());
+        var connections = new WsConnections(Duration.ofSeconds(5), Duration.ofSeconds(5), new SimpleMeterRegistry());
 
         connections.register(testConnectionId, mockedSession);
         connections.push(testConnectionId, testMessage);
@@ -221,13 +226,13 @@ public class WsConnectionsTest {
 
         assertThat(iterationCount).isLessThan(1000);
         assertThat(underTest.registrationWaits()).isEqualTo(1);
-        assertThat(underTest.registrationTimeoutTermination()).isEqualTo(0);
+        assertThat(underTest.registrationTimeoutFlagged()).isEqualTo(0);
         verify(mockedBasicRemote, times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
     @Test
-    @DisplayName("register never lands → ConnectionGone thrown, connection terminated, wsgw.registration.timeout.termination incremented")
+    @DisplayName("register never lands → ConnectionGone thrown, connection terminated, wsgw.registration.timeout.flagged incremented")
     void pushTimesOutWhenRegisterNeverArrives() throws IOException {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
@@ -246,7 +251,8 @@ public class WsConnectionsTest {
         }
 
         assertThat(underTest.registrationWaits()).isEqualTo(0);
-        assertThat(underTest.registrationTimeoutTermination()).isEqualTo(1);
+        assertThat(underTest.registrationTimeoutFlagged()).isEqualTo(1);
+        assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(1);
         verifyNoMoreInteractions(mockedBasicRemote);
         verifyNoMoreInteractions(mockedSession);
 
@@ -256,6 +262,7 @@ public class WsConnectionsTest {
         verify(mockedSession, times(1)).close(captor.capture());
         assertThat(captor.getValue().getCloseCode()).isEqualTo(CloseReason.CloseCodes.TRY_AGAIN_LATER);
         assertThat(captor.getValue().getReasonPhrase()).isEqualTo("registration too late");
+        assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(0);
     }
 
     @Test
