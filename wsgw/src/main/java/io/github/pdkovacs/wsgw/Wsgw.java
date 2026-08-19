@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
 import io.github.pdkovacs.wsgw.appward.Relays;
+import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
