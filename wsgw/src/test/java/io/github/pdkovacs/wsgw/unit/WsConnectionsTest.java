@@ -65,8 +65,12 @@ public class WsConnectionsTest {
             return (int) registry.get("wsgw.registration.timeout.abandoned").tag("leg", "push").gauge().value();
         }
 
-        Timer sendWait() {
+        Timer pushSendLogWait() {
             return registry.get("wsgw.send_lock.wait").tag("leg", "push").timer();
+        }
+
+        int pushSendLockTimeouts() {
+          return (int) registry.get("wsgw.send_lock.timeouts").tag("leg", "push").counter().count();
         }
     }
 
@@ -97,7 +101,8 @@ public class WsConnectionsTest {
         connections.register(testConnectionId, mockedSession);
         connections.push(testConnectionId, testMessage);
 
-        assertThat(underTest.sendWait().mean(TimeUnit.MICROSECONDS)).isLessThan(TimeUnit.SECONDS.toMicros(1));
+        assertThat(underTest.pushSendLogWait().mean(TimeUnit.MICROSECONDS)).isLessThan(TimeUnit.SECONDS.toMicros(1));
+        assertThat(underTest.pushSendLockTimeouts()).isEqualTo(0);
         verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
         verifyNoMoreInteractions(mockedBasicRemote);
     }
@@ -314,9 +319,10 @@ public class WsConnectionsTest {
                 assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
             } finally {
                 blockingEnd.countDown(); // the previous one can unblock now.
-                assertThat(underTest.sendWait().count()).isEqualTo(2);
-                assertThat(underTest.sendWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
             }
+            assertThat(underTest.pushSendLogWait().count()).isEqualTo(2);
+            assertThat(underTest.pushSendLogWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
+            assertThat(underTest.pushSendLockTimeouts()).isEqualTo(1);
         }
     }
 
