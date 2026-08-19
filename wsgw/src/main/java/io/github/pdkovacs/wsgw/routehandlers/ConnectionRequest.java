@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.AppPaths;
-import io.github.pdkovacs.wsgw.ConnectionIdProvider;
+import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;

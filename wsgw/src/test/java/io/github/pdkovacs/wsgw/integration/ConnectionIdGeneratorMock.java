@@ -1,6 +1,6 @@
 package io.github.pdkovacs.wsgw.integration;
 
-import io.github.pdkovacs.wsgw.ConnectionIdProvider;
+import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 
 public class ConnectionIdGeneratorMock implements ConnectionIdProvider {
 
