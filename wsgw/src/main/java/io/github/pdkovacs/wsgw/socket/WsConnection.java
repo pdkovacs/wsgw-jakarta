@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.socket;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import jakarta.websocket.CloseReason;
 import jakarta.websocket.Session;
@@ -18,7 +19,9 @@ class WsConnection {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnection.class);
 
-    private final Timer sendLockWait;
+    record Metrics(Timer sendLockWait, Counter pushWaitTimeouts) {}
+
+    private final Metrics metrics;
     private final String connectionId;
     private final Object registrationLock = new Object();
     private final ReentrantLock sendLock;
@@ -26,10 +29,10 @@ class WsConnection {
     private volatile Session registeredSession;
     private boolean registrationTooLate = false;
 
-    public WsConnection(String connectionId, Timer sendLockWait) {
+    public WsConnection(String connectionId, Metrics metrics) {
         sendLock = new ReentrantLock();
         this.connectionId = connectionId;
-        this.sendLockWait = sendLockWait;
+        this.metrics = metrics;
     }
 
     public void close() throws IOException {
@@ -111,11 +114,12 @@ class WsConnection {
         try {
             if (!sendLock.tryLock(waitForSendMessageDesaturation.toMillis(), MILLISECONDS)) {
                 mLogger.debug("failed to acquire sendLock", waitForSendMessageDesaturation);
+                metrics.pushWaitTimeouts.increment();
                 throw new SendWaitTimedOut(connectionId);
             }
         } finally {
             var end = System.nanoTime();
-            sendLockWait.record(Duration.ofNanos(end - start));
+            metrics.sendLockWait.record(Duration.ofNanos(end - start));
         }
         try {
             mLogger.debug("acquired sendLock");

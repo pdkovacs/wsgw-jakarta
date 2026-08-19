@@ -19,7 +19,8 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
     private record Meters(Counter registrationWaits, Counter registrationTimeoutFlagged,
-                          AtomicInteger registrationTimeoutAbandonedDelegate, Timer sendLockWait) {
+                          AtomicInteger registrationTimeoutAbandonedDelegate, Timer pushSendLockWait,
+                          Counter pushSendLockTimeouts) {
         static Meters create(MeterRegistry registry) {
             Counter registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
             Counter registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
@@ -27,9 +28,11 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandonedDelegate, AtomicInteger::get)
                     .tag("leg", "push")
                     .register(registry);
-            Timer sendLockWait = registry.timer("wsgw.send_lock.wait", "leg", "push");
+            Timer pushSendLockWait = registry.timer("wsgw.send_lock.wait", "leg", "push");
+            Counter pushSendLockTimeouts = registry.counter("wsgw.send_lock.timeouts", "leg", "push");
 
-            return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandonedDelegate, sendLockWait);
+            return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandonedDelegate,
+                    pushSendLockWait, pushSendLockTimeouts);
         }
     }
 
@@ -54,7 +57,9 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         try {
             var conn = this.conns.compute(connectionId, (_, existing) -> {
                 mLogger.debug("computing connection: exiting={}", existing);
-                var connection = existing != null ? existing : new WsConnection(connectionId, meters.sendLockWait());
+                var connection = existing != null
+                        ? existing
+                        : createWsConnection(connectionId);
                 return connection;
             });
             if (!conn.registerSession(session)) {
@@ -83,7 +88,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                         "push arrived before register; parking until registration for {} millis",
                         timeouts.pushWaitForRegistration().toMillis());
                 waitedForRegistration[0] = true;
-                return new WsConnection(connectionId, meters.sendLockWait);
+                return createWsConnection(connectionId);
             }
             return existing;
         });
@@ -111,5 +116,9 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             return;
         }
         conn.close();
+    }
+
+    private WsConnection createWsConnection(String connectionId) {
+        return new WsConnection(connectionId, new WsConnection.Metrics(meters.pushSendLockWait, meters.pushSendLockTimeouts));
     }
 }
