@@ -4,7 +4,9 @@ import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.Wsgw;
 import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
+import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import org.jspecify.annotations.NonNull;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -19,21 +21,31 @@ public class WsgwTestContext {
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = Request.createHttpClient();
-    final String[] apiKey = new String[] { "XKEY", "asdfqwe" };
     final WsTestClients wsTestClients = new WsTestClients();
 
     private Wsgw wsgw;
-
     private String wsgwServerName;
+
+    FakeAppConfig fakeAppConfig;
 
     public WsgwTestContext() {}
 
-    public void setUp(Path tempDir) throws Exception {
-        int appPort = fakeApp.start(tempDir, apiKey);
+    public void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
+        fakeAppConfig = new FakeAppConfig(tempDir, new String[] { "XKEY", "asdfqwe" });
+        int appPort = fakeApp.start(fakeAppConfig);
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
+        wsgwConfig.setAppBaseUrl(appBaseUrl);
+        wsgwConfig.setBaseDir(tempDir.resolve("wsgw"));
 
-        wsgw = new Wsgw(new Configuration(appBaseUrl, tempDir.resolve("wsgw"), APPWARD_DISPATCHER_QUEUE_SIZE), connectionIdGeneratorMock);
+        wsgw = new Wsgw(wsgwConfig, connectionIdGeneratorMock);
         wsgwServerName = "localhost:%d".formatted(wsgw.start());
+    }
+
+    public void setUp(Path tempDir) throws Exception {
+        var config = new Configuration();
+        config.setBaseDir(tempDir.resolve("wsgw"));
+        config.setAppwardDispatcherQueueSize(1);
+        setUp(tempDir, config);
     }
 
     public void tearDown() throws Exception {

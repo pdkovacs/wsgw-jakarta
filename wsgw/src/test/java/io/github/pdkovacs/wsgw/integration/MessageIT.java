@@ -44,7 +44,7 @@ public class MessageIT {
     void relaysAMessageToApp() throws Exception {
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
         String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
+        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
 
         final String messageToApp = sendMessageFromClientToApp(wsTestClient, connId);
 
@@ -57,7 +57,7 @@ public class MessageIT {
         try {
             String wsgwServerName = wsgwTestContext.getWsgwServerName();
             String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
+            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
 
             var messageFromApp = wsTestClient.postMessageFromApp();
             // The app->client push leg negotiated HTTP/2 (h2c) end to end — not a silent h1 fallback.
@@ -75,7 +75,7 @@ public class MessageIT {
         try {
             String wsgwServerName = wsgwTestContext.getWsgwServerName();
             String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
+            var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
 
             final String messageSentToApp = sendMessageFromClientToApp(wsTestClient, connId);
             final String messageSentToClient = wsTestClient.postMessageFromApp();
@@ -95,7 +95,7 @@ public class MessageIT {
 
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
         String connId = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.apiKey);
+        var wsTestClient = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
 
         final Collection<String> messagesSentToApp = new ConcurrentLinkedQueue<>();
         final Collection<String> messagesSentToClient = new ConcurrentLinkedQueue<>();
@@ -162,7 +162,7 @@ public class MessageIT {
             ;
 
             final Callable<Boolean> createWsConnection = () -> {
-                WebsocketTestClient wsTestClient = testClients.connect(wsgwServerName, wsgwTestContext.apiKey);
+                WebsocketTestClient wsTestClient = testClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
                 final Collection<String> messagesSentToApp = new ConcurrentLinkedQueue<>();
                 final Collection<String> messagesSentToClient = new ConcurrentLinkedQueue<>();
                 clientContextsToStart.put(new ClientTestCtx(wsTestClient, messagesSentToApp, messagesSentToClient));

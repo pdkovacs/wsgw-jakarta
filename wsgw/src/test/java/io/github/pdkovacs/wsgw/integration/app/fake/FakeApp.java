@@ -7,7 +7,6 @@ import org.apache.catalina.startup.Tomcat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.Path;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -20,10 +19,10 @@ public class FakeApp {
 
     private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointMap = new ConcurrentHashMap<>();
 
-    public int start(Path tomcatBaseDir, String[] expectedApiKey) {
+    public int start(FakeAppConfig fakeAppConfig) {
         try {
             tomcat = new Tomcat();
-            tomcat.setBaseDir(tomcatBaseDir.resolve("appMock").toAbsolutePath().toString());
+            tomcat.setBaseDir(fakeAppConfig.getTomcatBaseDir().resolve("appMock").toAbsolutePath().toString());
             tomcat.setPort(0);
             tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
@@ -33,8 +32,8 @@ public class FakeApp {
             Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
             ctx.addServletMappingDecoded("/", "default");
 
-            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Authentication(expectedApiKey), "/*");
-            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Connect(connectionEndpointMap),
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Authentication(fakeAppConfig.getApiKey()), "/*");
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Connect(connectionEndpointMap, fakeAppConfig),
                     AppPaths.CONNECT_FROM_WSGW + "/*");
             FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Disconnect(connectionEndpointMap),
                     AppPaths.DISCONNECTED_FROM_WSGW + "/*");

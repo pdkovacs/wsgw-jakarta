@@ -13,19 +13,23 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
 public class ConnectionRequest extends HttpFilter {
 
-    private static final CtxLogger log = CtxLogger.of(ConnectionRequest.class);
+    private static final CtxLogger logger = CtxLogger.of(ConnectionRequest.class);
 
     private final String appBaseUrl;
     private final ConnectionIdProvider connectionIdProvider;
+    private final Duration connectWaitTimeout;
 
-    public ConnectionRequest(String appBaseUrl, ConnectionIdProvider connectionIdProvider) {
+    public ConnectionRequest(String appBaseUrl, ConnectionIdProvider connectionIdProvider, Duration connectWaitTimeout) {
         this.appBaseUrl = appBaseUrl;
         this.connectionIdProvider = connectionIdProvider;
+        this.connectWaitTimeout = connectWaitTimeout;
     }
 
     @Override
@@ -40,9 +44,14 @@ public class ConnectionRequest extends HttpFilter {
         var reqHeaders = Request.getRequestHeaders(req);
 
         var connectionId = this.connectionIdProvider.generateId();
+        var mLogger = logger.with("connectionId",connectionId);
+
         int appStatus;
         try {
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
+        } catch (HttpTimeoutException timeoutException) {
+            res.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "request timed out");
+            return;
         } catch (Exception e) {
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");
             return;
@@ -67,10 +76,11 @@ public class ConnectionRequest extends HttpFilter {
     // and returns the HTTP status the backend answered with. 204 means accepted.
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
-        var log = ConnectionRequest.log.with("connId", connectionId).with("appBaseUrl", appBaseUrl);
+        var log = ConnectionRequest.logger.with("connId", connectionId).with("appBaseUrl", appBaseUrl);
         log.debug("About to register with app");
         HttpResponse<Void> response = Request.send(appBaseUrl, reqHeaders,
-                AppPaths.CONNECT_FROM_WSGW + "/" + connectionId, "GET", null);
+                AppPaths.CONNECT_FROM_WSGW + "/" + connectionId,
+                "GET", null, connectWaitTimeout);
         log.debug("Registered with app: status {}", response.statusCode());
         return response.statusCode();
     }

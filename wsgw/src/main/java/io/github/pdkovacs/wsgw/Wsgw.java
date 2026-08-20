@@ -20,6 +20,7 @@ import org.apache.tomcat.util.descriptor.web.FilterDef;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.websocket.server.WsSci;
 
+import java.time.Duration;
 import java.util.Set;
 
 public class Wsgw {
@@ -77,7 +78,7 @@ public class Wsgw {
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
-        addFilters(ctx, wsConnections);
+        addFilters(ctx, wsConnections, configuration.getConnectWaitTimeout());
 
         var appwardRelay = new Relays(configuration.getAppBaseUrl(), configuration.getAppwardDispatcherQueueSize());
 
@@ -95,8 +96,8 @@ public class Wsgw {
         return tomcat.getConnector().getLocalPort();
     }
 
-    private void addFilters(Context ctx, WsConnections wsConnections) {
-        addFilter(ctx, new ConnectionRequest(configuration.getAppBaseUrl(), this.connectionIdProvider), WsgwPaths.CONNECT_FROM_CLIENT);
+    private void addFilters(Context ctx, WsConnections wsConnections, Duration connectWaitTimeout) {
+        addFilter(ctx, new ConnectionRequest(configuration.getAppBaseUrl(), this.connectionIdProvider, connectWaitTimeout), WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }

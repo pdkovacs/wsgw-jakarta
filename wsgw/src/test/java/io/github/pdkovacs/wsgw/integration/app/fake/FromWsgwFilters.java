@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 public class FromWsgwFilters {
+
     interface ConnectionEndpointRegistrar {
         void register(WsgwEndpoint endpoint);
     }
@@ -66,13 +67,25 @@ public class FromWsgwFilters {
     public static class Connect extends HttpFilter {
         private static final CtxLogger logger = CtxLogger.of("FakeApp." + Connect.class.getSimpleName());
         private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
+        private final FakeAppConfig fakeAppConfig;
 
-        public Connect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar) {
+        public Connect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar, FakeAppConfig fakeAppConfig) {
             this.connectionEndpointRegistrar = connectionEndpointRegistrar;
+            this.fakeAppConfig = fakeAppConfig;
         }
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
-                throws IOException, ServletException {
+                throws IOException {
+            if (fakeAppConfig.getConnectProcessingDuration() != null) {
+                try {
+                    logger.debug("about to get busy...");
+                    Thread.sleep(fakeAppConfig.getConnectProcessingDuration());
+                    logger.debug("no longer busy");
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
             if (!req.getServletPath().startsWith(AppPaths.CONNECT_FROM_WSGW)) {
                 res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }

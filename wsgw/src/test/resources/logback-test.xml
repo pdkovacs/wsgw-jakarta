@@ -18,6 +18,6 @@
          here (or temporarily in a test) when diagnosing a specific functional test. -->
     <logger name="io.github.pdkovacs.wsgw" level="INFO"/>
     <logger name="io.github.pdkovacs.wsgw" level="DEBUG"/>
-    <logger name="FakeApp" level="INFO"/>
+    <logger name="FakeApp" level="DEBUG"/>
 
 </configuration>
