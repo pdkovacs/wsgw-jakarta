@@ -152,14 +152,12 @@ public class MessageIT {
                 Collection<String> messagesSentToClient
         ) {
         }
-        ;
 
         final Collection<ClientTestCtx> processedClientContexts = new ConcurrentLinkedQueue<>();
 
         var firstError = new AtomicReference<Throwable>();
         try (var topExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             final BlockingQueue<ClientTestCtx> clientContextsToStart = new LinkedBlockingQueue<>();
-            ;
 
             final Callable<Boolean> createWsConnection = () -> {
                 WebsocketTestClient wsTestClient = testClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
@@ -169,18 +167,16 @@ public class MessageIT {
                 return true;
             };
 
-            final BiConsumer<ExecutorService, Callable<Boolean>> submitErrorChecked = (executor, callable) -> {
-                executor.submit(() -> {
-                    try {
-                        callable.call();
-                    } catch (Throwable tbl) {
-                        tcLogger.error("Error", tbl);
-                        if (firstError.compareAndSet(null, tbl)) {
-                            executor.shutdownNow(); // interrupt the in-flight siblings
-                        }
+            final BiConsumer<ExecutorService, Callable<Boolean>> submitErrorChecked = (executor, callable) -> executor.submit(() -> {
+                try {
+                    callable.call();
+                } catch (Throwable tbl) {
+                    tcLogger.error("Error", tbl);
+                    if (firstError.compareAndSet(null, tbl)) {
+                        executor.shutdownNow(); // interrupt the in-flight siblings
                     }
-                });
-            };
+                }
+            });
 
             final Supplier<Boolean> noImpeds = () -> firstError.get() == null && !Thread.currentThread().isInterrupted();
 

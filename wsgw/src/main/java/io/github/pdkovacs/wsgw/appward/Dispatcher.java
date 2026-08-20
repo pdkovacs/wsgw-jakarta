@@ -61,8 +61,8 @@ public class Dispatcher {
         return done;
     }
 
-    void setDone(boolean done) {
-        this.done = done;
+    void setDone() {
+        this.done = true;
     }
 
     @Override

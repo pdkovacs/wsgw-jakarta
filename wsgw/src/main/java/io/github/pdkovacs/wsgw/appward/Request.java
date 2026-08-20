@@ -51,7 +51,7 @@ public class Request {
     // One shared client for the whole gateway: its selector, thread pool and
     // (keep-alive) connection pool are reused across every WS connection, instead
     // of being built up and torn down per request.
-    public HttpClient appClient = createHttpClient();
+    public HttpClient appClient;
 
     public Request(String appBaseUrl, HttpClient httpClient) {
         this.appBaseUrl = appBaseUrl;

@@ -21,9 +21,7 @@ public class Relay {
         this.connectionId = connectionId;
         dispatcher = new Dispatcher(
                 queueSize,
-            error -> {
-                logger.error("Error sending message", error);
-            }
+                error -> logger.error("Error sending message", error)
         );
         dispatcher.start(connectionId);
     }
@@ -36,7 +34,7 @@ public class Relay {
         logger.debug("sendDisconnect called");
         dispatcher.accept(() -> {
             relayToApp(AppPaths.DISCONNECTED_FROM_WSGW, null);
-            dispatcher.setDone(true);
+            dispatcher.setDone();
         });
     }
 
