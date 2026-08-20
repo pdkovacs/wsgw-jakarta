@@ -6,6 +6,8 @@ import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -17,15 +19,22 @@ public class WsgwTestContext {
     private static final CtxLogger logger = CtxLogger.of(WsgwTestContext.class);
     public static final int APPWARD_DISPATCHER_QUEUE_SIZE = 1;
 
+    record Meters(MeterRegistry registry) {
+        int connectTimeouts() {
+            return (int) registry.get("wsgw.connect.timeouts").tag("leg", "connect").counter().count();
+        }
+    }
+
     private final FakeApp fakeApp = new FakeApp();
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = Request.createHttpClient();
-    final String[] apiKey = new String[]{"XKEY", "asdfqwe"};
     final WsTestClients wsTestClients = new WsTestClients();
+    Meters meters;
+
+    private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private Wsgw wsgw;
-
     private String wsgwServerName;
 
     FakeAppConfig fakeAppConfig;
@@ -41,8 +50,9 @@ public class WsgwTestContext {
         wsgwConfig.setAppBaseUrl(appBaseUrl);
         wsgwConfig.setBaseDir(tempDir.resolve("wsgw"));
 
-        wsgw = new Wsgw(wsgwConfig, connectionIdGeneratorMock);
+        wsgw = new Wsgw(wsgwConfig, meterRegistry, connectionIdGeneratorMock);
         wsgwServerName = "localhost:%d".formatted(wsgw.start());
+        meters = new Meters(meterRegistry);
     }
 
     public void setUp(Path tempDir) throws Exception {

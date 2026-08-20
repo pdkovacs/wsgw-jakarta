@@ -52,7 +52,7 @@ public class Relay {
         try {
             log.debug("Sending request to app...");
             appwardRequest.send(requestHeaders, pathOnApp + "/" + connectionId, "POST",
-                    msg);
+                    msg, null);
             log.debug("Request sent to app");
         } catch (InterruptedException e) {
             log.warn("Interrupted while waiting for request to connect");

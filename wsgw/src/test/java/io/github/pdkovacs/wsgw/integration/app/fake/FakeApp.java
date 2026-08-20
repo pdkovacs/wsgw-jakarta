@@ -36,7 +36,7 @@ public class FakeApp {
             ctx.addServletMappingDecoded("/", "default");
 
             FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Authentication(fakeAppConfig.getApiKey()), "/*");
-            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Connect(connectionEndpointMap),
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Connect(connectionEndpointMap, fakeAppConfig),
                     AppPaths.CONNECT_FROM_WSGW + "/*");
             FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Disconnect(connectionEndpointMap, fakeAppConfig),
                     AppPaths.DISCONNECTED_FROM_WSGW + "/*");

@@ -67,10 +67,12 @@ public class Request {
     }
 
     public HttpResponse<Void> send(
-            Map<String, List<String>> reqHeaders,
+            Map<String,
+                    List<String>> reqHeaders,
             String appPath,
             String reqMethod,
-            String body) throws IOException, InterruptedException {
+            String body,
+            Duration timeout) throws IOException, InterruptedException {
         log.debug("Building request to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
@@ -78,6 +80,10 @@ public class Request {
         if (reqMethod != null) {
             requestBuilder.method(reqMethod,
                     body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
+        }
+
+        if (timeout != null) {
+            requestBuilder.timeout(timeout);
         }
 
         log.debug("Assembling headers... ({}): {}", appPath, reqHeaders);

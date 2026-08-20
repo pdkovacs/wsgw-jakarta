@@ -52,7 +52,8 @@ public class MessagePushyIT {
             WebsocketTestClient testClient,
             Collection<String> ackedToApp,      // client->app sends that returned OK
             Collection<String> ackedToClient    // app->client pushes that returned OK
-    ) {}
+    ) {
+    }
 
     @BeforeEach
     public void setUp(@TempDir Path tempDir) throws Exception {
@@ -87,7 +88,7 @@ public class MessagePushyIT {
             for (int i = 0; i < nrClients; i++) {
                 connectExec.submit(() -> {
                     try {
-                        var client = testClients.connect(wsgwServerName, wsgwTestContext.apiKey);
+                        var client = testClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
                         processed.add(new ClientTestCtx(client,
                                 new ConcurrentLinkedQueue<>(), new ConcurrentLinkedQueue<>()));
                     } catch (Throwable t) {
