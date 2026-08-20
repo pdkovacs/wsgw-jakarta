@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.integration;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,7 +48,7 @@ public class ConnectionIT {
     }
 
     private void assertFailureBeforeUpgrade(String assertionContext, int expectedHttpStatusCode, String wsgwPath,
-            String[] apiKey) {
+                                            String[] apiKey) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://%s"
                         .formatted(wsgwTestContext.getWsgwServerName())
@@ -66,7 +67,7 @@ public class ConnectionIT {
 
     @Test
     void setsUpConnectionWithInvalidAPIKey() throws Exception {
-        var invalidAPIKey = new String[] { wsgwTestContext.apiKey[0], wsgwTestContext.apiKey[1].concat("kalap") };
+        var invalidAPIKey = new String[]{wsgwTestContext.apiKey[0], wsgwTestContext.apiKey[1].concat("kalap")};
         assertFailureBeforeUpgrade("plain GET to /connect with valid key", HttpServletResponse.SC_NOT_FOUND,
                 "/connect", wsgwTestContext.apiKey);
         assertFailureBeforeUpgrade("401 from /connect handshake with invalid key", HttpServletResponse.SC_UNAUTHORIZED,

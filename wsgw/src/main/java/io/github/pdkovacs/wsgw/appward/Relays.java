@@ -9,17 +9,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Relays {
     private static final CtxLogger logger = CtxLogger.of(Relays.class);
 
-    private final String appBaseUrl;
+    private final Request appwardRequest;
     private final ConcurrentHashMap<String, Relay> relays = new ConcurrentHashMap<>();
     private final int queueSize;
 
-    public Relays(String appBaseUrl, int queueSize) {
-        this.appBaseUrl = appBaseUrl;
+    public Relays(Request appwardRequest, int queueSize) {
+        this.appwardRequest = appwardRequest;
         this.queueSize = queueSize;
     }
 
     public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new Relay(appBaseUrl, requestHeaders, connectionId, queueSize);
+        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueSize);
         relays.put(connectionId, relay);
         return relay;
     };
