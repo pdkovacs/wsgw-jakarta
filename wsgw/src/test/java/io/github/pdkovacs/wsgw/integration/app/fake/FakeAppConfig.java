@@ -31,4 +31,12 @@ public class FakeAppConfig {
     public void setDisconnectProcessingImpl(Runnable disconnectProcessingImpl) {
         this.disconnectProcessingImpl = disconnectProcessingImpl;
     }
+
+    public Runnable getConnectProcessingImpl() {
+        return connectProcessingImpl;
+    }
+
+    public void setConnectProcessingImpl(Runnable connectProcessingImpl) {
+        this.connectProcessingImpl = connectProcessingImpl;
+    }
 }

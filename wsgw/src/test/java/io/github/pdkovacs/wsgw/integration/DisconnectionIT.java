@@ -2,7 +2,6 @@ package io.github.pdkovacs.wsgw.integration;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
-import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

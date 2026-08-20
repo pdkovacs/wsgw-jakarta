@@ -5,6 +5,8 @@ import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -13,6 +15,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -20,12 +24,27 @@ public class ConnectionRequest extends HttpFilter {
 
     private static final CtxLogger logger = CtxLogger.of(ConnectionRequest.class);
 
+    private record Meters(Counter connectTimeouts) {
+        static Meters create(MeterRegistry registry) {
+            // CONNECT
+
+            // -- timeouts
+            Counter connectTimeouts = registry.counter("wsgw.connect.timeouts", "leg", "connect");
+
+            return new Meters(connectTimeouts);
+        }
+    }
+
     private final Request appwardRequest;
     private final ConnectionIdProvider connectionIdProvider;
+    private final Duration connectWaitTimeout;
+    private final Meters meters;
 
-    public ConnectionRequest(Request appwardRequest, ConnectionIdProvider connectionIdProvider) {
+    public ConnectionRequest(Request appwardRequest, ConnectionIdProvider connectionIdProvider, Duration connectWaitTimeout, MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.connectionIdProvider = connectionIdProvider;
+        this.connectWaitTimeout = connectWaitTimeout;
+        this.meters = Meters.create(meterRegistry);
     }
 
     @Override
@@ -40,9 +59,15 @@ public class ConnectionRequest extends HttpFilter {
         var reqHeaders = Request.getRequestHeaders(req);
 
         var connectionId = this.connectionIdProvider.generateId();
+        var mLogger = logger.with("connectionId", connectionId);
+
         int appStatus;
         try {
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
+        } catch (HttpTimeoutException timeoutException) {
+            meters.connectTimeouts().increment();
+            res.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "request timed out");
+            return;
         } catch (Exception e) {
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");
             return;
@@ -71,7 +96,7 @@ public class ConnectionRequest extends HttpFilter {
         log.debug("About to register with app");
         HttpResponse<Void> response = appwardRequest.send(reqHeaders,
                 AppPaths.CONNECT_FROM_WSGW + "/" + connectionId,
-                "GET", null);
+                "GET", null, connectWaitTimeout);
         log.debug("Registered with app: status {}", response.statusCode());
         return response.statusCode();
     }
