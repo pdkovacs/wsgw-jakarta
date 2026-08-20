@@ -18,13 +18,13 @@ import java.util.Map;
 
 public class ConnectionRequest extends HttpFilter {
 
-    private static final CtxLogger log = CtxLogger.of(ConnectionRequest.class);
+    private static final CtxLogger logger = CtxLogger.of(ConnectionRequest.class);
 
-    private final String appBaseUrl;
+    private final Request appwardRequest;
     private final ConnectionIdProvider connectionIdProvider;
 
-    public ConnectionRequest(String appBaseUrl, ConnectionIdProvider connectionIdProvider) {
-        this.appBaseUrl = appBaseUrl;
+    public ConnectionRequest(Request appwardRequest, ConnectionIdProvider connectionIdProvider) {
+        this.appwardRequest = appwardRequest;
         this.connectionIdProvider = connectionIdProvider;
     }
 
@@ -67,10 +67,11 @@ public class ConnectionRequest extends HttpFilter {
     // and returns the HTTP status the backend answered with. 204 means accepted.
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
-        var log = ConnectionRequest.log.with("connId", connectionId).with("appBaseUrl", appBaseUrl);
+        var log = ConnectionRequest.logger.with("connId", connectionId).with("appwardRquest", appwardRequest);
         log.debug("About to register with app");
-        HttpResponse<Void> response = Request.send(appBaseUrl, reqHeaders,
-                AppPaths.CONNECT_FROM_WSGW + "/" + connectionId, "GET", null);
+        HttpResponse<Void> response = appwardRequest.send(reqHeaders,
+                AppPaths.CONNECT_FROM_WSGW + "/" + connectionId,
+                "GET", null);
         log.debug("Registered with app: status {}", response.statusCode());
         return response.statusCode();
     }

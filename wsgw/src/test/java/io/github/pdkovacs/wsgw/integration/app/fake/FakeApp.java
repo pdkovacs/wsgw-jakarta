@@ -62,5 +62,6 @@ public class FakeApp {
 
     public void stop() throws LifecycleException {
         tomcat.stop();
+        tomcat.destroy();
     }
 }

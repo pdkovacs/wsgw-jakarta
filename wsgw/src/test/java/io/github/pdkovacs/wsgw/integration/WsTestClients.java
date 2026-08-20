@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.integration;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Request;
 import jakarta.websocket.*;
+import org.apache.tomcat.websocket.WsWebSocketContainer;
 import org.assertj.core.api.Assertions;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -24,16 +25,18 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 
-record WebsocketTestClient(String wsgwServer, HttpClient httpClient,
-                           TestClientEndpoint testClientEndpoint, Session websocketClientSession,
+record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientEndpoint testClientEndpoint,
+                           WsWebSocketContainer container, Session websocketClientSession,
                            String connectionId, BlockingQueue<Message> messageInbox) implements AutoCloseable {
     private static final CtxLogger logger = CtxLogger.of(WebsocketTestClient.class);
 
-    public static WebsocketTestClient of(String wsgwServer, TestClientEndpoint testClientEndpoint,
-                                         Session websocketClientSession, String connectionId,
-                                         BlockingQueue<Message> messageInbox) {
+    public static WebsocketTestClient of(
+            String wsgwServer, TestClientEndpoint testClientEndpoint,
+            WsWebSocketContainer container,
+            Session websocketClientSession, String connectionId,
+            BlockingQueue<Message> messageInbox) {
         return new WebsocketTestClient(wsgwServer, Request.createHttpClient(HttpClient.Version.HTTP_2),
-                testClientEndpoint, websocketClientSession, connectionId, messageInbox);
+                testClientEndpoint, container, websocketClientSession, connectionId, messageInbox);
     }
 
     public @NonNull String postMessageFromApp()
@@ -58,6 +61,8 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient,
         // "no reason")
         logger.debug("Closing session...");
         websocketClientSession.close();
+        container.destroy();
+        httpClient.close();
     }
 }
 
@@ -115,7 +120,9 @@ class WsTestClients implements AutoCloseable {
         Session session = container.connectToServer(testClientEndpoint, cfg, connectURI);
         // connectToServer returns only after onOpen has run, so the session is ready
         // here — no latch needed.
-        var wsTestClient = WebsocketTestClient.of(wsgwServerName, testClientEndpoint, session, futureConnectionId.get(), messageInbox);
+        var wsTestClient = WebsocketTestClient.of(
+                wsgwServerName, testClientEndpoint, (WsWebSocketContainer) container, session,
+                futureConnectionId.get(), messageInbox);
         // Send a warm-up request to prime the h2c connection as long as no-concurrency is guaranteed,
         // because concurrent requests sporadically fall back to HTTP/1.1 under stress
         wsTestClient.postMessageFromApp();

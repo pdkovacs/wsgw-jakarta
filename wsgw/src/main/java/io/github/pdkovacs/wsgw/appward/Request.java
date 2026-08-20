@@ -30,10 +30,9 @@ public class Request {
             "sec-websocket-extensions",
             "sec-websocket-protocol");
 
-    // One shared client for the whole gateway: its selector, thread pool and
-    // (keep-alive) connection pool are reused across every WS connection, instead
-    // of being built up and torn down per request.
-    public static HttpClient appClient = createHttpClient();
+    private static boolean isRestricted(String headerName) {
+        return RESTRICTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
+    }
 
     public static HttpClient createHttpClient() {
         return createHttpClient(HttpClient.Version.HTTP_1_1);
@@ -47,12 +46,31 @@ public class Request {
                 .build();
     }
 
-    private static boolean isRestricted(String headerName) {
-        return RESTRICTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT));
+    private final String appBaseUrl;
+
+    // One shared client for the whole gateway: its selector, thread pool and
+    // (keep-alive) connection pool are reused across every WS connection, instead
+    // of being built up and torn down per request.
+    public HttpClient appClient;
+
+    public Request(String appBaseUrl, HttpClient httpClient) {
+        this.appBaseUrl = appBaseUrl;
+        this.appClient = httpClient;
     }
 
-    public static HttpResponse<Void> send(String appBaseUrl, Map<String, List<String>> reqHeaders,
-            String appPath, String reqMethod, String body) throws IOException, InterruptedException {
+    public Request(String appBaseUrl) {
+        this(appBaseUrl, createHttpClient());
+    }
+
+    public void close() {
+        appClient.close();
+    }
+
+    public HttpResponse<Void> send(
+            Map<String, List<String>> reqHeaders,
+            String appPath,
+            String reqMethod,
+            String body) throws IOException, InterruptedException {
         log.debug("Building request to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
@@ -72,10 +90,19 @@ public class Request {
             reqHeaders.get(headerName).forEach(value -> requestBuilder.header(headerName, value));
         }
 
-        log.debug("Sending request... ({})", appPath);
+        log.debug("Sending request... ({})",
+                appPath);
         var response = appClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
         log.debug("Request {} returned {}", appPath, response.statusCode());
         return response;
+    }
+
+    @Override
+    public String toString() {
+        return "Request{" +
+                "appBaseUrl='" + appBaseUrl + '\'' +
+                ", appClient=" + appClient +
+                '}';
     }
 
     public static Map<String, List<String>> getRequestHeaders(HttpServletRequest req) {
