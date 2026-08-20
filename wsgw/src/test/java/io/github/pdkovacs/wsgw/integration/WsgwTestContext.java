@@ -53,6 +53,7 @@ public class WsgwTestContext {
         wsTestClients.close();
         wsgw.stop();
         fakeApp.stop();
+        httpClient.close();
     }
 
     public String getWsgwServerName() {

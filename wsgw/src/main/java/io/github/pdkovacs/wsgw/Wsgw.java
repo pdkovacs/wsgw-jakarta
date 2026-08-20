@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
 import io.github.pdkovacs.wsgw.appward.Relays;
+import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -34,6 +35,8 @@ public class Wsgw {
 
     private Tomcat tomcat;
 
+    private Request appwardRequest;
+
     public Wsgw(Configuration configuration) {
         // Production default: the JVM temp dir is always present and writable,
         // and there is no Maven "target/" to rely on outside the build.
@@ -50,6 +53,8 @@ public class Wsgw {
         tomcat.setBaseDir(configuration.getBaseDir().toAbsolutePath().toString());
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
+
+        appwardRequest = new Request(configuration.getAppBaseUrl());
 
         // Advertise h2c on the connector so HTTP/2-capable callers (the app->client push leg) can
         // upgrade. This is client-opt-in: HTTP/1.1 callers and the WebSocket (Upgrade: websocket)
@@ -80,7 +85,7 @@ public class Wsgw {
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections, configuration.getConnectWaitTimeout());
 
-        var appwardRelay = new Relays(configuration.getAppBaseUrl(), configuration.getAppwardDispatcherQueueSize());
+        var appwardRelay = new Relays(appwardRequest, configuration.getAppwardDispatcherQueueSize());
 
         // turn on WS support + register the endpoint before the context finishes
         // starting
@@ -97,13 +102,14 @@ public class Wsgw {
     }
 
     private void addFilters(Context ctx, WsConnections wsConnections, Duration connectWaitTimeout) {
-        addFilter(ctx, new ConnectionRequest(configuration.getAppBaseUrl(), this.connectionIdProvider, connectWaitTimeout), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx, new ConnectionRequest(appwardRequest, this.connectionIdProvider, connectWaitTimeout), WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }
 
     public void stop() {
         try {
+            appwardRequest.close();
             logger.debug("Stopping server...");
             tomcat.stop();
             logger.debug("Server stopped...");

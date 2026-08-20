@@ -10,13 +10,13 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 public class Relay {
     private static final CtxLogger logger = CtxLogger.of(Relay.class);
 
-    private final String appBaseUrl;
+    private final Request appwardRequest;
     private final Map<String, List<String>> requestHeaders;
     private final String connectionId;
     private final Dispatcher dispatcher;
 
-    Relay(String appBaseUrl, Map<String, List<String>> requestHeaders, String connectionId, int queueSize) {
-        this.appBaseUrl = appBaseUrl;
+    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, int queueSize) {
+        this.appwardRequest = appwardRequest;
         this.requestHeaders = requestHeaders;
         this.connectionId = connectionId;
         dispatcher = new Dispatcher(
@@ -44,7 +44,7 @@ public class Relay {
         var log = logger.with("path", pathOnApp).with("connId", connectionId);
         try {
             log.debug("Sending request to app...");
-            Request.send(appBaseUrl, requestHeaders, pathOnApp + "/" + connectionId, "POST",
+            appwardRequest.send(requestHeaders, pathOnApp + "/" + connectionId, "POST",
                     msg, null);
             log.debug("Request sent to app");
         } catch (InterruptedException e) {
@@ -62,7 +62,7 @@ public class Relay {
     @Override
     public String toString() {
         return "Relay{" +
-                "appBaseUrl='" + appBaseUrl + '\'' +
+                "appwardRequest='" + appwardRequest + '\'' +
                 ", connectionId='" + connectionId + '\'' +
                 ", dispatcher=" + dispatcher +
                 '}';
