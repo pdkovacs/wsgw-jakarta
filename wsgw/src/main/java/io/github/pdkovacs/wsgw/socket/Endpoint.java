@@ -44,6 +44,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         Relay relay = appwardRelays.createRelay(connectHeaders, connectionId);
 
         session.addMessageHandler(String.class, msg -> relay.sendMessage(msg));
+        appwardRelays.scanForRemoveDefunctAsync();
         log.debug("onOpen completed");
     }
 
@@ -57,7 +58,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
 
         try {
             logger.debug("Websocket %s disconnected. Reason: %s".formatted(connectionId, r));
-            var relay = appwardRelays.detachRelay(connectionId);
+            var relay = appwardRelays.get(connectionId);
             if (relay != null) {
                 relay.sendDisconnect();
             } else {

@@ -4,10 +4,12 @@ import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.Wsgw;
 import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
+import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 
 public class WsgwTestContext {
@@ -19,26 +21,39 @@ public class WsgwTestContext {
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = Request.createHttpClient();
-    final String[] apiKey = new String[] { "XKEY", "asdfqwe" };
+    final String[] apiKey = new String[]{"XKEY", "asdfqwe"};
     final WsTestClients wsTestClients = new WsTestClients();
 
     private Wsgw wsgw;
 
     private String wsgwServerName;
 
-    public WsgwTestContext() {}
+    FakeAppConfig fakeAppConfig;
+
+
+    public WsgwTestContext() {
+    }
+
+    public void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
+        fakeAppConfig = new FakeAppConfig(tempDir, new String[]{"XKEY", "asdfqwe"});
+        int appPort = fakeApp.start(fakeAppConfig);
+        String appBaseUrl = "http://localhost:%d".formatted(appPort);
+        wsgwConfig.setAppBaseUrl(appBaseUrl);
+        wsgwConfig.setBaseDir(tempDir.resolve("wsgw"));
+
+        wsgw = new Wsgw(wsgwConfig, connectionIdGeneratorMock);
+        wsgwServerName = "localhost:%d".formatted(wsgw.start());
+    }
 
     public void setUp(Path tempDir) throws Exception {
-        int appPort = fakeApp.start(tempDir, apiKey);
-        String appBaseUrl = "http://localhost:%d".formatted(appPort);
-
-        wsgw = new Wsgw(new Configuration(appBaseUrl, tempDir.resolve("wsgw"), APPWARD_DISPATCHER_QUEUE_SIZE), connectionIdGeneratorMock);
-        wsgwServerName = "localhost:%d".formatted(wsgw.start());
+        var config = new Configuration();
+        config.setBaseDir(tempDir.resolve("wsgw"));
+        config.setAppwardDispatcherQueueSize(1);
+        setUp(tempDir, config);
     }
 
     public void tearDown() throws Exception {
         logger.debug("Tearing down WsgwTestContext");
-        wsTestClients.close();
         wsgw.stop();
         fakeApp.stop();
         httpClient.close();
@@ -50,5 +65,9 @@ public class WsgwTestContext {
 
     public BlockingQueue<Message> getAppInbox(String connectionId) {
         return fakeApp.getConnection(connectionId).getMessageInbox();
+    }
+
+    public List<BlockingQueue<Message>> getAppInboxes() {
+        return this.fakeApp.getInboxes();
     }
 }

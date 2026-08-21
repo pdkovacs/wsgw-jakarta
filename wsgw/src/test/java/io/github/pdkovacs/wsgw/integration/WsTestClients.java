@@ -142,6 +142,7 @@ class TestClientEndpoint extends Endpoint {
     final BlockingQueue<Message> messageInbox;
 
     Session session;
+    volatile boolean sessionClosed = false;
 
     public TestClientEndpoint(BlockingQueue<Message> messageInbox) {
         this.messageInbox = messageInbox;
@@ -172,6 +173,8 @@ class TestClientEndpoint extends Endpoint {
             messageInbox.put(Message.EndOfStream.INSTANCE);
         } catch (InterruptedException e) {
             logger.error("Interrupted while putting EndOfStream to inbox", e);
+        } finally {
+            sessionClosed = true;
         }
     }
 }

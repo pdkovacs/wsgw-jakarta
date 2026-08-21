@@ -62,7 +62,7 @@ public class Request {
         this(appBaseUrl, createHttpClient());
     }
 
-    public void close() {
+    public void stop() {
         appClient.close();
     }
 
