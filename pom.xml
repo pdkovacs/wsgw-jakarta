@@ -30,9 +30,10 @@
         <failsafe-plugin.version>3.5.5</failsafe-plugin.version>
 
         <!-- Surefire/Failsafe swallow captured test stdout/stderr into the report XML by default here,
-             keeping tool noise (Mockito self-attach warnings, etc.) off the console. Flip to false to
-             echo captured output live — see the `test-logs` profile below. -->
-        <surefire.consoleOutput.disable>true</surefire.consoleOutput.disable>
+             keeping tool noise (Mockito self-attach warnings, etc.) off the console.
+             Pass -Dtest-logs=DEBUG (or TRACE, etc.) to enable console output and set the log level
+             for test classes in one shot. Without it: console output off, test log level INFO. -->
+        <test.consoleOutput.disable>true</test.consoleOutput.disable>
         <junit.version>6.1.0</junit.version>
         <assertj.version>3.27.6</assertj.version>
         <mockito.version>5.18.0</mockito.version>
@@ -116,7 +117,7 @@
                     <configuration>
                         <reportFormat>plain</reportFormat>
                         <consoleOutputReporter>
-                            <disable>${surefire.consoleOutput.disable}</disable>
+                            <disable>${test.consoleOutput.disable}</disable>
                         </consoleOutputReporter>
                     </configuration>
                 </plugin>
@@ -127,7 +128,7 @@
                     <configuration>
                         <reportFormat>plain</reportFormat>
                         <consoleOutputReporter>
-                            <disable>${surefire.consoleOutput.disable}</disable>
+                            <disable>${test.consoleOutput.disable}</disable>
                         </consoleOutputReporter>
                     </configuration>
                     <executions>
@@ -144,14 +145,43 @@
     </build>
 
     <profiles>
-        <!-- Diagnostic runs: echo captured test stdout/stderr (incl. DEBUG logs from logback-test.xml)
-             live to the console. Usage: mvn -Ptest-logs -Dtest=WsConnectionsTest test
-             Remember to also bump the relevant logger to DEBUG in logback-test.xml. -->
+        <!-- Diagnostic runs: enable console output and set the test log level in one shot.
+             Usage: mvn -Dtest-logs=DEBUG -Dtest=WsConnectionsTest test
+                    mvn -Dtest-logs=TRACE -Dit.test=UserResourceIT verify -->
         <profile>
             <id>test-logs</id>
+            <activation>
+                <property>
+                    <name>test-logs</name>
+                </property>
+            </activation>
             <properties>
-                <surefire.consoleOutput.disable>false</surefire.consoleOutput.disable>
+                <test.consoleOutput.disable>false</test.consoleOutput.disable>
             </properties>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-surefire-plugin</artifactId>
+                            <configuration>
+                                <systemPropertyVariables>
+                                    <test.log.level>${test-logs}</test.log.level>
+                                </systemPropertyVariables>
+                            </configuration>
+                        </plugin>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-failsafe-plugin</artifactId>
+                            <configuration>
+                                <systemPropertyVariables>
+                                    <test.log.level>${test-logs}</test.log.level>
+                                </systemPropertyVariables>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
         </profile>
     </profiles>
 </project>

@@ -14,10 +14,8 @@
     </root>
 
     <!-- Quiet by default: a load test emits millions of per-message events, and synchronous DEBUG
-         logging both drowns the output and perturbs the timing under test. Bump a logger to DEBUG
-         here (or temporarily in a test) when diagnosing a specific functional test. -->
-    <logger name="io.github.pdkovacs.wsgw" level="INFO"/>
-    <logger name="io.github.pdkovacs.wsgw" level="DEBUG"/>
-    <logger name="FakeApp" level="INFO"/>
+         logging both drowns the output and perturbs the timing under test.
+         Pass -Dtest-logs=DEBUG on the mvn command line to bump — no need to edit this file. -->
+    <logger name="io.github.pdkovacs.wsgw" level="${test.log.level:-INFO}"/>
 
 </configuration>
