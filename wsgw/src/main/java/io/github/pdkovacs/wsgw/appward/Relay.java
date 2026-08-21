@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.appward;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -34,8 +35,16 @@ public class Relay {
         logger.debug("sendDisconnect called");
         dispatcher.accept(() -> {
             relayToApp(AppPaths.DISCONNECTED_FROM_WSGW, null);
-            dispatcher.setDone(true);
         });
+        dispatcher.accept(Dispatcher.POISON);
+    }
+
+    public boolean isDefunct() {
+        return dispatcher.isDefunct();
+    }
+
+    public void join(Duration timeout) {
+        dispatcher.join(timeout);
     }
 
     private void relayToApp(String pathOnApp, String msg) {

@@ -92,13 +92,19 @@ public class FromWsgwFilters {
     public static class Disconnect extends HttpFilter {
         private static final CtxLogger logger = CtxLogger.of("FakeApp." + Disconnect.class.getSimpleName());
         private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
+        private final FakeAppConfig fakeAppConfig;
 
-        public Disconnect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar) {
+        public Disconnect(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar, FakeAppConfig fakeAppConfig) {
             this.connectionEndpointRegistrar = connectionEndpointRegistrar;
+            this.fakeAppConfig = fakeAppConfig;
         }
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
+            if (fakeAppConfig.getDisconnectProcessingImpl() != null) {
+                fakeAppConfig.getDisconnectProcessingImpl().run();
+            }
+
             if (!req.getServletPath().startsWith(AppPaths.DISCONNECTED_FROM_WSGW)) {
                 res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }

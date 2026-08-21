@@ -2,6 +2,7 @@ package io.github.pdkovacs.wsgw.appward;
 
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,9 +23,32 @@ public class Relays {
         var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueSize);
         relays.put(connectionId, relay);
         return relay;
-    };
+    }
 
-    public Relay detachRelay(String connectionId) {   // retire from registry, hand it back
-        return relays.remove(connectionId);
+    ;
+
+    public Relay get(String connectionId) {   // retire from registry, hand it back
+        return relays.get(connectionId);
+    }
+
+    public void scanForRemoveDefunctAsync() {
+        Thread.ofVirtual().start(() -> {
+            for (var relay : relays.entrySet().stream().toList()) {
+                if (relay.getValue().isDefunct()) {
+                    relays.remove(relay.getKey());
+                }
+            }
+        });
+    }
+
+    public void stop() {
+        for (Relay relay : relays.values()) {
+            relay.join(Duration.ofSeconds(5));
+        }
+        appwardRequest.stop();
+    }
+
+    public Request appwardRequest() {
+        return appwardRequest;
     }
 }
