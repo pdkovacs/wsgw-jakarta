@@ -38,6 +38,8 @@
         <assertj.version>3.27.6</assertj.version>
         <mockito.version>5.18.0</mockito.version>
         <micrometer.version>1.14.2</micrometer.version>
+
+        <surefire.skip>false</surefire.skip>
     </properties>
 
     <dependencyManagement>
@@ -119,6 +121,7 @@
                         <consoleOutputReporter>
                             <disable>${test.consoleOutput.disable}</disable>
                         </consoleOutputReporter>
+                        <skipTests>${surefire.skip}</skipTests>
                     </configuration>
                 </plugin>
                 <plugin>
