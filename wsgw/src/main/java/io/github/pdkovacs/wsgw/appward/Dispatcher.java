@@ -8,9 +8,16 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class Dispatcher {
     private static final CtxLogger logger = CtxLogger.of(Dispatcher.class);
 
+    private volatile Thread workerThread;
+
     interface Dispatch {
         void send();
     }
+
+    public static final Dispatch POISON =  new Dispatch() {
+        @Override
+        public void send() {}
+    };
 
     interface ErrorChannel {
         void report(Throwable throwable);
@@ -18,8 +25,6 @@ public class Dispatcher {
 
     private final BlockingQueue<Dispatch> queue;
     private final ErrorChannel errorChannel;
-
-    private volatile boolean done;
 
     Dispatcher(int queueSize, ErrorChannel errorChannel) {
         queue = new LinkedBlockingQueue<>(queueSize);
@@ -35,15 +40,19 @@ public class Dispatcher {
     }
 
     void start(String connectionId) {
-        Thread.ofVirtual().name("dispatcher + " + connectionId).start(this::run);
+        workerThread = Thread.ofVirtual().name("dispatcher + " + connectionId).start(this::run);
     }
 
     private void run() {
         var mLogger = logger.with("method", "run").with("thread", Thread.currentThread().getName());
         mLogger.info("Running");
-        while (!isDone() && !Thread.currentThread().isInterrupted()) {
+        while (!Thread.currentThread().isInterrupted()) {
             try {
                 var dispatch = queue.take();
+                if  (dispatch == POISON) {
+                    mLogger.debug("POISON received");
+                    break;
+                }
                 dispatch.send();
             } catch (InterruptedException e) {
                 mLogger.debug("Dispatcher got interrupted");
@@ -57,12 +66,12 @@ public class Dispatcher {
         mLogger.info("Finishing... interrupted: {}", Thread.currentThread().isInterrupted());
     }
 
-    private boolean isDone() {
-        return done;
-    }
-
-    void setDone() {
-        this.done = true;
+    public void join() {
+        try {
+            workerThread.join();
+        } catch (InterruptedException e) {
+            logger.info("{} interrupted in join", workerThread.getName());
+        }
     }
 
     @Override

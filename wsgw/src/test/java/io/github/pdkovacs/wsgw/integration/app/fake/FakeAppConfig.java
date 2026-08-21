@@ -8,7 +8,8 @@ public class FakeAppConfig {
     private final Path tomcatBaseDir;
     private final String[] apiKey;
 
-    private Duration connectProcessingDuration;
+    private Runnable connectProcessingImpl;
+    private Runnable disconnectProcessingImpl;
 
     public FakeAppConfig(Path tomcatBaseDir, String[] apiKey) {
         this.tomcatBaseDir = tomcatBaseDir;
@@ -23,11 +24,19 @@ public class FakeAppConfig {
         return apiKey;
     }
 
-    public Duration getConnectProcessingDuration() {
-        return connectProcessingDuration;
+    public Runnable getConnectProcessingImpl() {
+        return connectProcessingImpl;
     }
 
-    public void setConnectProcessingDuration(Duration connectProcessingDuration) {
-        this.connectProcessingDuration = connectProcessingDuration;
+    public void setConnectProcessingImpl(Runnable connectProcessingImpl) {
+        this.connectProcessingImpl = connectProcessingImpl;
+    }
+
+    public Runnable getDisconnectProcessingImpl() {
+        return disconnectProcessingImpl;
+    }
+
+    public void setDisconnectProcessingImpl(Runnable disconnectProcessingImpl) {
+        this.disconnectProcessingImpl = disconnectProcessingImpl;
     }
 }

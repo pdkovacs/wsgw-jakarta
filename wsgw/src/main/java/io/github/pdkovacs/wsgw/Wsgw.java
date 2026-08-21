@@ -35,7 +35,7 @@ public class Wsgw {
 
     private Tomcat tomcat;
 
-    private Request appwardRequest;
+    private Relays appwardRelays;
 
     public Wsgw(Configuration configuration) {
         // Production default: the JVM temp dir is always present and writable,
@@ -54,7 +54,7 @@ public class Wsgw {
         tomcat.setPort(0);
         tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
-        appwardRequest = new Request(configuration.getAppBaseUrl());
+        var appwardRequest = new Request(configuration.getAppBaseUrl());
 
         // Advertise h2c on the connector so HTTP/2-capable callers (the app->client push leg) can
         // upgrade. This is client-opt-in: HTTP/1.1 callers and the WebSocket (Upgrade: websocket)
@@ -80,19 +80,19 @@ public class Wsgw {
                 this.configuration.getPushWaitForSendMessageDesaturation(),
                 meterRegistry);
 
+        appwardRelays = new Relays(appwardRequest, configuration.getAppwardDispatcherQueueSize());
+
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
         addFilters(ctx, wsConnections, configuration.getConnectWaitTimeout());
-
-        var appwardRelay = new Relays(appwardRequest, configuration.getAppwardDispatcherQueueSize());
 
         // turn on WS support + register the endpoint before the context finishes
         // starting
         ctx.addServletContainerInitializer(new WsSci() {
             @Override
             public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
-                ctx.addListener(new WsListener(appwardRelay, wsConnections));
+                ctx.addListener(new WsListener(appwardRelays, wsConnections));
                 super.onStartup(clazzes, ctx);
             }
         }, null);
@@ -102,17 +102,20 @@ public class Wsgw {
     }
 
     private void addFilters(Context ctx, WsConnections wsConnections, Duration connectWaitTimeout) {
-        addFilter(ctx, new ConnectionRequest(appwardRequest, this.connectionIdProvider, connectWaitTimeout), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx, new ConnectionRequest(appwardRelays.appwardRequest(), this.connectionIdProvider, connectWaitTimeout), WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }
 
     public void stop() {
         try {
-            appwardRequest.close();
             logger.debug("Stopping server...");
             tomcat.stop();
-            logger.debug("Server stopped...");
+            logger.debug("Webcontainer stopped...");
+            tomcat.destroy();
+            logger.debug("Webcontainer destroyed....");
+            appwardRelays.close();
+            logger.debug("appwardRelays closed....");
         } catch (Exception e) {
             logger.error("Failed to stop server");
             throw new RuntimeException(e);

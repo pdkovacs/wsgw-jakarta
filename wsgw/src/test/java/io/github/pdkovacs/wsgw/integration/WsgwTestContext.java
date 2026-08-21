@@ -6,11 +6,13 @@ import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
-import org.jspecify.annotations.NonNull;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class WsgwTestContext {
 
@@ -50,7 +52,6 @@ public class WsgwTestContext {
 
     public void tearDown() throws Exception {
         logger.debug("Tearing down WsgwTestContext");
-        wsTestClients.close();
         wsgw.stop();
         fakeApp.stop();
         httpClient.close();
@@ -62,5 +63,9 @@ public class WsgwTestContext {
 
     public BlockingQueue<Message> getAppInbox(String connectionId) {
         return fakeApp.getConnection(connectionId).getMessageInbox();
+    }
+
+    public List<BlockingQueue<Message>> getAppInboxes() {
+        return this.fakeApp.getInboxes();
     }
 }

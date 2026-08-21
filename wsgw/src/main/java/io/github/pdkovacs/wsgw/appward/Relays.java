@@ -27,4 +27,12 @@ public class Relays {
     public Relay detachRelay(String connectionId) {   // retire from registry, hand it back
         return relays.remove(connectionId);
     }
+
+    public void close() {
+        appwardRequest.close();
+    }
+
+    public Request appwardRequest() {
+        return appwardRequest;
+    }
 }

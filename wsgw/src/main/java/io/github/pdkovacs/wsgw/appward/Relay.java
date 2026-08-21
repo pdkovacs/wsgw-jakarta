@@ -34,8 +34,9 @@ public class Relay {
         logger.debug("sendDisconnect called");
         dispatcher.accept(() -> {
             relayToApp(AppPaths.DISCONNECTED_FROM_WSGW, null);
-            dispatcher.setDone();
         });
+        dispatcher.accept(Dispatcher.POISON);
+        dispatcher.join();
     }
 
     private void relayToApp(String pathOnApp, String msg) {
