@@ -13,9 +13,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.fail;
 
 @Timeout(5)
 public class ConnectionIT {
@@ -83,17 +84,62 @@ public class ConnectionIT {
         config.setConnectWaitTimeout(timeOut.minus(Duration.ofSeconds(1)));
         wsgwTestContext.setUp(tempDir, config);
 
-        wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(createWaitImpl(timeOut));
-        assertFailureBeforeUpgrade("504 from /connect handshake time-outing", HttpServletResponse.SC_GATEWAY_TIMEOUT,
-                "/connect", wsgwTestContext.fakeAppConfig.getApiKey());
+        var appConnectBlocking = new CountDownLatch(2);
+        var unblockAppConnect = new CountDownLatch(1);
+        try {
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(createWaitImpl(appConnectBlocking, unblockAppConnect));
+            assertFailureBeforeUpgrade("504 from /connect handshake time-outing", HttpServletResponse.SC_GATEWAY_TIMEOUT,
+                    "/connect", wsgwTestContext.fakeAppConfig.getApiKey());
+        } finally {
+            unblockAppConnect.countDown();
+        }
     }
 
-    static Runnable createWaitImpl(Duration timeout) {
+    @Test
+    void inflightConnnectsGauge(@TempDir Path tempDir) throws Exception {
+        var tcLogger = logger.with("test-case", "inflightConnnectsGauge");
+        // ARRANGE
+        var connectionEstablished = new CountDownLatch(2);
+        var appConnectBlocking = new CountDownLatch(2);
+        var unblockAppConnect = new CountDownLatch(1);
+        try {
+            wsgwTestContext.setUp(tempDir);
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectionIT.createWaitImpl(appConnectBlocking, unblockAppConnect));
+
+            String wsgwServerName = wsgwTestContext.getWsgwServerName();
+
+            var executor = Executors.newVirtualThreadPerTaskExecutor();
+            for (var i = 0; i < 2; i++) {
+                executor.submit(() -> {
+                    this.wsgwTestContext.connectionIdGeneratorMock.roll();
+                    try {
+                        wsgwTestContext.wsTestClients.connect(
+                                wsgwServerName,
+                                wsgwTestContext.fakeAppConfig.getApiKey(),
+                                connectionEstablished
+                        );
+                    } catch (Exception e) {
+                        tcLogger.error("test client failed to connect", e);
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+            appConnectBlocking.await();
+            tcLogger.debug("assert...");
+            assertThat(wsgwTestContext.meters.inflightConnects()).isEqualTo(2);
+        } finally {
+            unblockAppConnect.countDown();
+            connectionEstablished.await();
+        }
+    }
+
+    static Runnable createWaitImpl(CountDownLatch readyForBlocking, CountDownLatch unblock) {
         return () -> {
             var mLogger = logger.with("method", "createWaitImpl");
             try {
+                readyForBlocking.countDown();
                 mLogger.debug("about to get busy...");
-                Thread.sleep(timeout);
+                unblock.await();
                 mLogger.debug("no longer busy");
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);

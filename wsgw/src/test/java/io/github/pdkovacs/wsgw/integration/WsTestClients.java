@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 
 record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientEndpoint testClientEndpoint,
@@ -72,8 +73,12 @@ class WsTestClients implements AutoCloseable {
     private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
 
     WebsocketTestClient connect(String wsgwServerName, String[] apiKey) throws Exception {
+        return connect(wsgwServerName, apiKey, null);
+    }
+
+    WebsocketTestClient connect(String wsgwServerName, String[] apiKey, CountDownLatch establishedLatch) throws Exception {
         // createConnectWebsocketClient already registers the client for teardown, so don't add twice.
-        return createConnectWebsocketClient(wsgwServerName, apiKey);
+        return createConnectWebsocketClient(wsgwServerName, apiKey, establishedLatch);
     }
 
     @Override
@@ -91,7 +96,8 @@ class WsTestClients implements AutoCloseable {
 
     private WebsocketTestClient createConnectWebsocketClient(
             String wsgwServerName,
-            String[] apiKey) throws Exception {
+            String[] apiKey,
+            CountDownLatch establishedLatch) throws Exception {
         URI connectURI = URI.create("ws://%s".formatted(wsgwServerName.concat(WsgwPaths.CONNECT_FROM_CLIENT)));
         WebSocketContainer container = ContainerProvider.getWebSocketContainer(); // ← Tomcat's client impl
         var messageInbox = new LinkedBlockingQueue<Message>();
@@ -129,6 +135,11 @@ class WsTestClients implements AutoCloseable {
         wsTestClient.messageInbox().take();
 
         clients.add(wsTestClient);
+
+        if (establishedLatch != null) {
+            establishedLatch.countDown();
+        }
+
         return wsTestClient;
     }
 

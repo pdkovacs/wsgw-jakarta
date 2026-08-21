@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw.integration;
 
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -7,10 +8,14 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class ShutdownIT {
+
+    private static final CtxLogger logger = CtxLogger.of(ShutdownIT.class);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 
@@ -22,15 +27,16 @@ public class ShutdownIT {
     @Test
     @Timeout(10)
     void shutdownDisconnectsBothClientAndApp() throws Exception {
+        var tcLogger = logger.with("test-case", "shutdownDisconnectsBothClientAndApp");
+
+        var appDisconnectBlocking = new CountDownLatch(2);
+        var unblockAppDisconnect = new CountDownLatch(1);
         try {
-            // ARRANGE
             String wsgwServerName = wsgwTestContext.getWsgwServerName();
-            String connId1 = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-            var wsTestClient1 = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
-            assertThat(wsTestClient1.connectionId()).isEqualTo(connId1);
-            String connId2 = this.wsgwTestContext.connectionIdGeneratorMock.roll();
-            var wsTestClient2 = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
-            assertThat(wsTestClient2.connectionId()).isEqualTo(connId2);
+            this.wsgwTestContext.connectionIdGeneratorMock.roll();
+            wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
+            this.wsgwTestContext.connectionIdGeneratorMock.roll();
+            wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
 
             // Defensive ASSERT
             for (var client : wsgwTestContext.wsTestClients.getClients()) {
@@ -43,9 +49,19 @@ public class ShutdownIT {
             }
 
             // ARRANGE
-            wsgwTestContext.fakeAppConfig.setDisconnectProcessingImpl(ConnectionIT.createWaitImpl(Duration.ofSeconds(3)));
+            wsgwTestContext.fakeAppConfig.setDisconnectProcessingImpl(ConnectionIT.createWaitImpl(appDisconnectBlocking, unblockAppDisconnect));
         } finally {
-            // ACT
+            // Have the app Wait for a sizeable period of time in the disconnect implementation
+            // so there is some real queue for the dispatchers to drain:
+            Executors.newVirtualThreadPerTaskExecutor().execute(() -> {
+                try {
+                    Thread.sleep(Duration.ofSeconds(3));
+                    unblockAppDisconnect.countDown();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            // Start the disconnect procedures assumed with the shutdown
             wsgwTestContext.tearDown();
         }
 

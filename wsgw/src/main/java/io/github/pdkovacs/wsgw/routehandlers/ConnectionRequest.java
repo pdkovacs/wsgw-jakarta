@@ -5,6 +5,8 @@ import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -17,25 +19,45 @@ import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectionRequest extends HttpFilter {
 
     private static final CtxLogger logger = CtxLogger.of(ConnectionRequest.class);
 
+    private record Meters(AtomicInteger inFlightConnects) {
+        static Meters create(MeterRegistry registry) {
+            // CONNECT
+            // -- in-flight
+            AtomicInteger inFlightConnects = new AtomicInteger(0);
+            Gauge.builder("wsgw.connects.inflight", inFlightConnects, AtomicInteger::get)
+                    .tag("leg", "connect")
+                    .register(registry);
+
+            return new Meters(inFlightConnects);
+        }
+    }
+
     private final Request appwardRequest;
     private final ConnectionIdProvider connectionIdProvider;
     private final Duration connectWaitTimeout;
+    private final Meters meters;
 
-    public ConnectionRequest(Request appwardRequest, ConnectionIdProvider connectionIdProvider, Duration connectWaitTimeout) {
+    public ConnectionRequest(
+            Request appwardRequest,
+            ConnectionIdProvider connectionIdProvider,
+            Duration connectWaitTimeout,
+            MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.connectionIdProvider = connectionIdProvider;
         this.connectWaitTimeout = connectWaitTimeout;
+        this.meters = Meters.create(meterRegistry);
     }
 
     @Override
-    protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
-            throws IOException, ServletException {
-
+    protected void doFilter(HttpServletRequest req,
+                            HttpServletResponse res,
+                            FilterChain chain) throws IOException, ServletException {
         String path = req.getServletPath();
         if (!path.startsWith(WsgwPaths.CONNECT_FROM_CLIENT)) {
             res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -48,6 +70,7 @@ public class ConnectionRequest extends HttpFilter {
 
         int appStatus;
         try {
+            meters.inFlightConnects.incrementAndGet();
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
         } catch (HttpTimeoutException timeoutException) {
             res.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "request timed out");
@@ -55,6 +78,8 @@ public class ConnectionRequest extends HttpFilter {
         } catch (Exception e) {
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");
             return;
+        } finally {
+            meters.inFlightConnects.decrementAndGet();
         }
 
         if (appStatus != HttpServletResponse.SC_NO_CONTENT) {

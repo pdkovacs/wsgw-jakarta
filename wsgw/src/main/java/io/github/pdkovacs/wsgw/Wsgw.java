@@ -31,20 +31,21 @@ public class Wsgw {
     private final Configuration configuration;
     private final ConnectionIdProvider connectionIdProvider;
 
-    private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final MeterRegistry meterRegistry;
 
     private Tomcat tomcat;
 
     private Relays appwardRelays;
 
-    public Wsgw(Configuration configuration) {
+    public Wsgw(Configuration configuration, MeterRegistry meterRegistry) {
         // Production default: the JVM temp dir is always present and writable,
         // and there is no Maven "target/" to rely on outside the build.
-        this(configuration, ConnectionIdProvider.DEFAULT);
+        this(configuration, meterRegistry, ConnectionIdProvider.DEFAULT);
     }
 
-    public Wsgw(Configuration configuration, ConnectionIdProvider connectionIdProvider) {
+    public Wsgw(Configuration configuration, MeterRegistry meterRegistry, ConnectionIdProvider connectionIdProvider) {
         this.configuration = configuration;
+        this.meterRegistry = meterRegistry;
         this.connectionIdProvider = connectionIdProvider;
     }
 
@@ -102,7 +103,9 @@ public class Wsgw {
     }
 
     private void addFilters(Context ctx, WsConnections wsConnections, Duration connectWaitTimeout) {
-        addFilter(ctx, new ConnectionRequest(appwardRelays.appwardRequest(), this.connectionIdProvider, connectWaitTimeout), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx,
+                new ConnectionRequest(appwardRelays.appwardRequest(), this.connectionIdProvider, connectWaitTimeout, meterRegistry),
+                WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }
