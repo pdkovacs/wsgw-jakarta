@@ -3,7 +3,6 @@ package io.github.pdkovacs.wsgw.integration;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;

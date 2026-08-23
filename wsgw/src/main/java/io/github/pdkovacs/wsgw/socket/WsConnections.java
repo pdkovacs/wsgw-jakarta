@@ -24,7 +24,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         static Meters create(MeterRegistry registry) {
             Counter registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
             Counter registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
-           AtomicInteger registrationTimeoutAbandonedDelegate = new AtomicInteger(0);
+            AtomicInteger registrationTimeoutAbandonedDelegate = new AtomicInteger(0);
             Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandonedDelegate, AtomicInteger::get)
                     .tag("leg", "push")
                     .register(registry);
@@ -57,10 +57,9 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         try {
             var conn = this.conns.compute(connectionId, (_, existing) -> {
                 mLogger.debug("computing connection: exiting={}", existing);
-                var connection = existing != null
+                return existing != null
                         ? existing
                         : createWsConnection(connectionId);
-                return connection;
             });
             if (!conn.registerSession(session)) {
                 conns.remove(connectionId);

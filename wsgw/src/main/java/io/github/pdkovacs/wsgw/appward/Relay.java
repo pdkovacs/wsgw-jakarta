@@ -21,9 +21,7 @@ public class Relay {
         this.connectionId = connectionId;
         dispatcher = new Dispatcher(
                 queueSize,
-            error -> {
-                logger.error("Error sending message", error);
-            }
+                error -> logger.error("Error sending message", error)
         );
         dispatcher.start(connectionId);
     }
