@@ -166,21 +166,21 @@ this implementation: the framework makes the fully functional connection availab
 to the application asynchronously in a callback — a remnant of the pre-Loom Java versions
 where load could only be scaled up using reactive mechanisms. Due to this asynchronicity,
 the connection becomes available to both the WebSocket client and the application
-even before it is made available to the gateway implementation (and the gateway becomes able
+even before it is made available to the gateway implementation (and before the gateway becomes able
 to take over managing the traffic over the connection).
 
 When a new WebSocket connection is opened, a sub-millisecond window may be open
 in which the app is notified about the new connection and receives the
-connection id, and the connection is not yet usable. `pushWaitForRegistration`
-is how long the gateway is willing to sit in it before declaring the connection
-a loss, at which point it flags the connection for termination. Flagged connections
+connection id, and the connection is not yet usable by the gateway. `pushWaitForRegistration`
+is how long the gateway is willing to stay in this window it before declaring the connection
+definitively unusable, at which point it flags the connection for termination. Flagged connections
 don't relay messages coming from the client. A flagged connection
 is terminated when the Jakarta framework finally makes the fully functional connection available
-to the application. The place of the termination has been chosen on the assumption that, if the connection
-establishment went as far as to provide a connection id to the app which came to the gateway
-requesting to push a message over the connection, the Jakarta framework will eventually
+to the application. The place of the termination has been chosen in the workflow on the assumption that,
+if the connection establishment went as far as to provide a connection id to the app which has come to the gateway
+requesting to push a message to the client over the connection, the Jakarta framework will eventually
 register the connection and removal from the map will eventually happen.
-`wsgw.registration.timeout.abandoned` is gauging the count of connections where termination
+`wsgw.registration.timeout.abandoned` is gauging the count of flagged connections where actual termination
 is yet to happen.
 
 ### 2.2 CONNECT — slow connection establishment, client → app
