@@ -1,7 +1,6 @@
 package io.github.pdkovacs.wsgw.integration.app.fake;
 
 import java.nio.file.Path;
-import java.time.Duration;
 
 public class FakeAppConfig {
 
@@ -24,19 +23,19 @@ public class FakeAppConfig {
         return apiKey;
     }
 
-    public Runnable getDisconnectProcessingImpl() {
-        return disconnectProcessingImpl;
-    }
-
-    public void setDisconnectProcessingImpl(Runnable disconnectProcessingImpl) {
-        this.disconnectProcessingImpl = disconnectProcessingImpl;
-    }
-
     public Runnable getConnectProcessingImpl() {
         return connectProcessingImpl;
     }
 
     public void setConnectProcessingImpl(Runnable connectProcessingImpl) {
         this.connectProcessingImpl = connectProcessingImpl;
+    }
+
+    public Runnable getDisconnectProcessingImpl() {
+        return disconnectProcessingImpl;
+    }
+
+    public void setDisconnectProcessingImpl(Runnable disconnectProcessingImpl) {
+        this.disconnectProcessingImpl = disconnectProcessingImpl;
     }
 }

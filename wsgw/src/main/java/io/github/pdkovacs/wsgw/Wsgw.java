@@ -10,7 +10,6 @@ import io.github.pdkovacs.wsgw.routehandlers.DisconnectRequest;
 import io.github.pdkovacs.wsgw.routehandlers.MessageRequest;
 import io.github.pdkovacs.wsgw.socket.WsListener;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -103,7 +102,13 @@ public class Wsgw {
     }
 
     private void addFilters(Context ctx, WsConnections wsConnections, Duration connectWaitTimeout) {
-        addFilter(ctx, new ConnectionRequest(appwardRelays.appwardRequest(), this.connectionIdProvider, connectWaitTimeout, meterRegistry), WsgwPaths.CONNECT_FROM_CLIENT);
+        addFilter(ctx,
+                new ConnectionRequest(
+                        appwardRelays.appwardRequest(),
+                        this.connectionIdProvider,
+                        configuration.getMaxInFlightConnects(),
+                        connectWaitTimeout, meterRegistry),
+                WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
     }

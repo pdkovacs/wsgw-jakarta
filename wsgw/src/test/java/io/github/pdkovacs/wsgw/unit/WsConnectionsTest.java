@@ -325,10 +325,4 @@ public class WsConnectionsTest {
             assertThat(underTest.pushSendLockTimeouts()).isEqualTo(1);
         }
     }
-
-    @Test
-    @DisplayName("sendMessage per-connection in-flight count")
-    void sendMessageInflightCount() throws IOException {
-
-    }
 }
