@@ -23,6 +23,11 @@ public class WsgwTestContext {
         int connectTimeouts() {
             return (int) registry.get("wsgw.connect.timeouts").tag("leg", "connect").counter().count();
         }
+
+        int inflightConnects() {
+            return (int) registry.get("wsgw.connects.inflight").tag("leg", "connect")
+                    .gauge().value();
+        }
     }
 
     private final FakeApp fakeApp = new FakeApp();
@@ -38,7 +43,6 @@ public class WsgwTestContext {
     private String wsgwServerName;
 
     FakeAppConfig fakeAppConfig;
-
 
     public WsgwTestContext() {
     }

@@ -16,6 +16,8 @@ public class Configuration {
 
     private Duration connectWaitTimeout = Duration.ofSeconds(10);
 
+    private int maxInFlightConnects = 10000;
+
     public String getAppBaseUrl() {
         return appBaseUrl;
     }
@@ -40,13 +42,6 @@ public class Configuration {
         this.appwardDispatcherQueueSize = appwardDispatcherQueueSize;
     }
 
-    public static Configuration fromEnv() {
-        var config = new Configuration();
-        config.setAppBaseUrl(Env.required("APP_BASE_URL"));
-        config.setAppwardDispatcherQueueSize(Env.intVar("APPWARD_DISPATCHER_QUEUE_SIZE", 1024));
-        return config;
-    }
-
     public Duration getPushToClientWaitTimeout() {
         return Duration.ofSeconds(10);
     }
@@ -61,5 +56,20 @@ public class Configuration {
 
     public void setConnectWaitTimeout(Duration connectWaitTimeout) {
         this.connectWaitTimeout = connectWaitTimeout;
+    }
+
+    public int getMaxInFlightConnects() {
+        return maxInFlightConnects;
+    }
+
+    public void setMaxInFlightConnects(int maxInFlightConnects) {
+        this.maxInFlightConnects = maxInFlightConnects;
+    }
+
+    public static Configuration fromEnv() {
+        var config = new Configuration();
+        config.setAppBaseUrl(Env.required("APP_BASE_URL"));
+        config.setAppwardDispatcherQueueSize(Env.intVar("APPWARD_DISPATCHER_QUEUE_SIZE", 1024));
+        return config;
     }
 }

@@ -19,26 +19,25 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
     private record Meters(Counter registrationWaits, Counter registrationTimeoutFlagged,
-                          AtomicInteger registrationTimeoutAbandonedDelegate, Timer pushSendLockWait,
+                          AtomicInteger registrationTimeoutAbandoned, Timer pushSendLockWait,
                           Counter pushSendLockTimeouts) {
         static Meters create(MeterRegistry registry) {
             Counter registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
             Counter registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
-            AtomicInteger registrationTimeoutAbandonedDelegate = new AtomicInteger(0);
-            Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandonedDelegate, AtomicInteger::get)
+            AtomicInteger registrationTimeoutAbandoned = new AtomicInteger(0);
+            Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandoned, AtomicInteger::get)
                     .tag("leg", "push")
                     .register(registry);
             Timer pushSendLockWait = registry.timer("wsgw.send_lock.wait", "leg", "push");
             Counter pushSendLockTimeouts = registry.counter("wsgw.send_lock.timeouts", "leg", "push");
 
-            return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandonedDelegate,
+            return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandoned,
                     pushSendLockWait, pushSendLockTimeouts);
         }
     }
 
     private final Timeouts timeouts;
     private final Meters meters;
-
 
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
 
@@ -63,7 +62,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             });
             if (!conn.registerSession(session)) {
                 conns.remove(connectionId);
-                meters.registrationTimeoutAbandonedDelegate.decrementAndGet();
+                meters.registrationTimeoutAbandoned().decrementAndGet();
                 return false;
             }
             return true;
@@ -96,13 +95,13 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             conn.sendMessage(message, timeouts);
             if (waitedForRegistration[0]) {
                 // message sent -> wait was benign
-                meters.registrationWaits.increment();
+                meters.registrationWaits().increment();
             }
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
         } catch (ConnectionGone connectionGone) {
-            meters.registrationTimeoutFlagged.increment();
-            meters.registrationTimeoutAbandonedDelegate.incrementAndGet();
+            meters.registrationTimeoutFlagged().increment();
+            meters.registrationTimeoutAbandoned().incrementAndGet();
             throw connectionGone;
         }
     }
@@ -118,6 +117,6 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     }
 
     private WsConnection createWsConnection(String connectionId) {
-        return new WsConnection(connectionId, new WsConnection.Metrics(meters.pushSendLockWait, meters.pushSendLockTimeouts));
+        return new WsConnection(connectionId, new WsConnection.Metrics(meters.pushSendLockWait(), meters.pushSendLockTimeouts()));
     }
 }

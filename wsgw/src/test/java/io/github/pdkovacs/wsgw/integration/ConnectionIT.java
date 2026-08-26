@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.integration;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.Configuration;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.websocket.DeploymentException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -16,6 +17,7 @@ import java.util.concurrent.CountDownLatch;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 @Timeout(5)
 public class ConnectionIT {
@@ -30,7 +32,7 @@ public class ConnectionIT {
     }
 
     @Test
-    void setsUpConnectionWithValidAPIKey(@TempDir Path tempDir) throws Exception {
+    void connectSucceedsWithValidAPIKey(@TempDir Path tempDir) throws Exception {
         wsgwTestContext.setUp(tempDir);
 
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
@@ -63,7 +65,7 @@ public class ConnectionIT {
     }
 
     @Test
-    void setsUpConnectionWithInvalidAPIKey(@TempDir Path tempDir) throws Exception {
+    void connectFailsWithInvalidAPIKey(@TempDir Path tempDir) throws Exception {
         wsgwTestContext.setUp(tempDir);
 
         var invalidAPIKey = new String[]{wsgwTestContext.fakeAppConfig.getApiKey()[0], wsgwTestContext.fakeAppConfig.getApiKey()[1].concat("kalap")};
@@ -83,16 +85,101 @@ public class ConnectionIT {
         config.setConnectWaitTimeout(timeOut.minus(Duration.ofSeconds(1)));
         wsgwTestContext.setUp(tempDir, config);
 
-        var appConnectBlocking = new CountDownLatch(2);
+        var appConnectImplBlocking = new CountDownLatch(2);
         var unblockAppConnect = new CountDownLatch(1);
         try {
             assertThat(wsgwTestContext.meters.connectTimeouts()).isEqualTo(0);
-            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(createWaitImpl(appConnectBlocking, unblockAppConnect));
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(createWaitImpl(appConnectImplBlocking, unblockAppConnect));
             assertFailureBeforeUpgrade("504 from /connect handshake time-outing", HttpServletResponse.SC_GATEWAY_TIMEOUT,
                     "/connect", wsgwTestContext.fakeAppConfig.getApiKey());
             assertThat(wsgwTestContext.meters.connectTimeouts()).isEqualTo(1);
         } finally {
             unblockAppConnect.countDown();
+        }
+    }
+
+    @Test
+    void inflightConnectsGauge(@TempDir Path tempDir) throws Exception {
+        var tcLogger = logger.with("test-case", "inflightConnectsGauge");
+        // ARRANGE
+        var connectionEstablished = new CountDownLatch(2);
+        var appConnectImplBlocking = new CountDownLatch(2);
+        var unblockAppConnect = new CountDownLatch(1);
+        try {
+            wsgwTestContext.setUp(tempDir);
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectionIT.createWaitImpl(appConnectImplBlocking, unblockAppConnect));
+
+            // ACT
+            for (var i = 0; i < 2; i++) {
+                connectChecked(connectionEstablished, false);
+            }
+            appConnectImplBlocking.await();
+
+            // ASSERT
+            assertThat(wsgwTestContext.meters.inflightConnects()).isEqualTo(2);
+        } finally {
+            unblockAppConnect.countDown();
+            connectionEstablished.await();
+        }
+    }
+
+    @Test
+    void excessInflightConnectThrows503(@TempDir Path tempDir) throws Exception {
+        var tcLogger = logger.with("test-case", "inflightConnectInExcessThrows503");
+        // ARRANGE
+        int maxInFlightConnects = 1;
+        var config = new Configuration();
+        config.setMaxInFlightConnects(maxInFlightConnects);
+
+        var connectionEstablished = new CountDownLatch(1);
+        var appConnectImplBlocking = new CountDownLatch(1);
+        var unblockAppConnectImpl = new CountDownLatch(1);
+        try {
+            wsgwTestContext.setUp(tempDir, config);
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectionIT.createWaitImpl(appConnectImplBlocking, unblockAppConnectImpl));
+
+            // ACT
+            connectChecked(connectionEstablished, false);
+            appConnectImplBlocking.await();
+
+            try {
+                connectChecked(connectionEstablished, true);
+                fail("Expected exception: HTTP 503");
+            } catch (Exception e) {
+                assertThat(e).isInstanceOf(DeploymentException.class);
+                var deploymentException = (DeploymentException) e;
+                assertThat(deploymentException).hasMessageContaining("[503]");
+            }
+
+            tcLogger.debug("assert...");
+            assertThat(wsgwTestContext.meters.inflightConnects()).isEqualTo(1);
+        } finally {
+            unblockAppConnectImpl.countDown();
+            connectionEstablished.await();
+        }
+    }
+
+    private void connectChecked(CountDownLatch connectionEstablished, boolean join) throws Exception {
+        String wsgwServerName = wsgwTestContext.getWsgwServerName();
+        final Exception[] savedException = new Exception[1];
+        Thread t = Thread.ofVirtual().start(() -> {
+            this.wsgwTestContext.connectionIdGeneratorMock.roll();
+            try {
+                wsgwTestContext.wsTestClients.connect(
+                        wsgwServerName,
+                        wsgwTestContext.fakeAppConfig.getApiKey(),
+                        connectionEstablished
+                );
+            } catch (Exception e) {
+                savedException[0] = e;
+                logger.error("[connectChecked]: test client failed to connect", e);
+            }
+        });
+        if  (join) {
+            t.join();
+            if (savedException[0] != null) {
+                throw savedException[0];
+            }
         }
     }
 

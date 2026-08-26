@@ -51,7 +51,7 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
 //                .timeout(Duration.ofSeconds(1))
                 .build();
         tcLoggerr.debug("Sending request...");
-        var response = httpClient().send(request, HttpResponse.BodyHandlers.discarding());
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
         Assertions.assertThat(response.version()).isEqualTo(HttpClient.Version.HTTP_2);
         tcLoggerr.debug("Request sent");
         return messageFromApp;
@@ -73,8 +73,7 @@ class WsTestClients implements AutoCloseable {
     private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
 
     WebsocketTestClient connect(String wsgwServerName, String[] apiKey) throws Exception {
-        // createConnectWebsocketClient already registers the client for teardown, so don't add twice.
-        return createConnectWebsocketClient(wsgwServerName, apiKey, new CountDownLatch(0));
+        return connect(wsgwServerName, apiKey, null);
     }
 
     WebsocketTestClient connect(String wsgwServerName, String[] apiKey, CountDownLatch readyLatch) throws Exception {
@@ -163,6 +162,9 @@ class TestClientEndpoint extends Endpoint {
     @Override
     public void onOpen(Session session, EndpointConfig endpointConfig) {
         this.session = session;
+        // Don't convert this interface to lambda. The lambda is not a drop-in equivalent for generic functional
+        // interfaces when the implementor relies on getGenericInterfaces() / getGenericSuperclass() reflection — which
+        // the Jakarta WS container does internally to wire message dispatch.
         this.session.addMessageHandler(new MessageHandler.Whole<String>() {
             @Override
             public void onMessage(String message) {
