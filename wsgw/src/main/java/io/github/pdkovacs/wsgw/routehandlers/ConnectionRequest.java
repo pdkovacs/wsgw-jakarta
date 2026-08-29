@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.AppPaths;
+import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Request;
@@ -47,6 +48,7 @@ public class ConnectionRequest extends HttpFilter {
     private final ConnectionIdProvider connectionIdProvider;
     private int maxInflightConnections;
     private final Duration connectWaitTimeout;
+    private final CircuitBreaker circuitBreaker;
     private final Meters meters;
 
     public ConnectionRequest(
@@ -54,11 +56,13 @@ public class ConnectionRequest extends HttpFilter {
             ConnectionIdProvider connectionIdProvider,
             int maxInflightConnections,
             Duration connectWaitTimeout,
+            CircuitBreaker circuitBreaker,
             MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.connectionIdProvider = connectionIdProvider;
         this.maxInflightConnections = maxInflightConnections;
         this.connectWaitTimeout = connectWaitTimeout;
+        this.circuitBreaker = circuitBreaker;
         this.meters = Meters.create(meterRegistry);
     }
 
@@ -69,6 +73,12 @@ public class ConnectionRequest extends HttpFilter {
         String path = req.getServletPath();
         if (!path.startsWith(WsgwPaths.CONNECT_FROM_CLIENT)) {
             res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        }
+
+        var holdDown = circuitBreaker.remaining();
+        if (holdDown != null) {
+            res.addHeader("Retry-After", String.valueOf(holdDown.getSeconds()));
+            res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "failed to reach application");
         }
 
         var reqHeaders = Request.getRequestHeaders(req);
@@ -86,6 +96,7 @@ public class ConnectionRequest extends HttpFilter {
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
         } catch (HttpTimeoutException timeoutException) {
             meters.connectTimeouts().increment();
+            circuitBreaker.increment();
             res.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "request timed out");
             return;
         } catch (Exception e) {
