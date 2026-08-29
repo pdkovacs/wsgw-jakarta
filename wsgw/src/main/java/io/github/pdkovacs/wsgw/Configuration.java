@@ -18,6 +18,12 @@ public class Configuration {
 
     private int maxInFlightConnects = 10000;
 
+    private Duration connectFailureCountWindow = Duration.ofSeconds(30);
+
+    private int connectFailurePreemptThreshold = 30;
+
+    private Duration preemptHoldDown =  Duration.ofSeconds(30);
+
     public String getAppBaseUrl() {
         return appBaseUrl;
     }
@@ -64,6 +70,30 @@ public class Configuration {
 
     public void setMaxInFlightConnects(int maxInFlightConnects) {
         this.maxInFlightConnects = maxInFlightConnects;
+    }
+
+    public Duration getConnectFailureCountWindow() {
+        return connectFailureCountWindow;
+    }
+
+    public void setConnectFailureCountWindow(Duration connectFailureCountWindow) {
+        this.connectFailureCountWindow = connectFailureCountWindow;
+    }
+
+    public int getConnectFailurePreemptThreshold() {
+        return connectFailurePreemptThreshold;
+    }
+
+    public void setConnectFailurePreemptThreshold(int connectFailurePreemptThreshold) {
+        this.connectFailurePreemptThreshold = connectFailurePreemptThreshold;
+    }
+
+    public Duration getPreemptHoldDown() {
+        return preemptHoldDown;
+    }
+
+    public void setPreemptHoldDown(Duration preemptHoldDown) {
+        this.preemptHoldDown = preemptHoldDown;
     }
 
     public static Configuration fromEnv() {

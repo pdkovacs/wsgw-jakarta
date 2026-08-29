@@ -75,9 +75,15 @@ public class Wsgw {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
+        var circuitBreaker = new CircuitBreaker(
+                configuration.getConnectFailureCountWindow(),
+                configuration.getConnectFailurePreemptThreshold(),
+                configuration.getPreemptHoldDown());
+
         WsConnections wsConnections = new WsConnections(
                 this.configuration.getPushToClientWaitTimeout(),
                 this.configuration.getPushWaitForSendMessageDesaturation(),
+                circuitBreaker,
                 meterRegistry);
 
         appwardRelays = new Relays(appwardRequest, configuration.getAppwardDispatcherQueueSize());
@@ -85,7 +91,7 @@ public class Wsgw {
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
         // handshake (modifyHandshake) to read. Without it, connectionId is "?".
-        addFilters(ctx, wsConnections, configuration.getConnectWaitTimeout());
+        addFilters(ctx, wsConnections, configuration.getConnectWaitTimeout(), circuitBreaker);
 
         // turn on WS support + register the endpoint before the context finishes
         // starting
@@ -101,13 +107,17 @@ public class Wsgw {
         return tomcat.getConnector().getLocalPort();
     }
 
-    private void addFilters(Context ctx, WsConnections wsConnections, Duration connectWaitTimeout) {
+    private void addFilters(
+            Context ctx,
+            WsConnections wsConnections,
+            Duration connectWaitTimeout,
+            CircuitBreaker circuitBreaker) {
         addFilter(ctx,
                 new ConnectionRequest(
                         appwardRelays.appwardRequest(),
                         this.connectionIdProvider,
                         configuration.getMaxInFlightConnects(),
-                        connectWaitTimeout, meterRegistry),
+                        connectWaitTimeout, circuitBreaker, meterRegistry),
                 WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));

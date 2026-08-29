@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw.unit;
 
+import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.socket.Timeouts;
@@ -75,17 +76,20 @@ public class WsConnectionsTest {
     }
 
     private ConnectionsUnderTest newConnections() {
-        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON);
+        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON, createCircuitBreaker());
     }
 
-    private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration) {
-        return newConnections(pushWaitForRegistration, WAIT_FOR_SENDMESSAGE_DESATURAITON);
+    private ConnectionsUnderTest newConnections(CircuitBreaker circuitBreaker) {
+        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON, circuitBreaker);
     }
 
-    private ConnectionsUnderTest newConnections(Duration pushWaitForRegistration, Duration waitForSendMessageDesaturation) {
+    private ConnectionsUnderTest newConnections(
+            Duration pushWaitForRegistration,
+            Duration waitForSendMessageDesaturation,
+            CircuitBreaker circuitBreaker) {
         var registry = new SimpleMeterRegistry();
         var timeouts = new Timeouts(pushWaitForRegistration, waitForSendMessageDesaturation);
-        return new ConnectionsUnderTest(new WsConnections(timeouts, registry), registry);
+        return new ConnectionsUnderTest(new WsConnections(timeouts, circuitBreaker, registry), registry);
     }
 
     @Test
@@ -95,7 +99,8 @@ public class WsConnectionsTest {
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var underTest = newConnections();
+        var circuitBreaker = mock(CircuitBreaker.class);
+        var underTest = newConnections(circuitBreaker);
         var connections = underTest.connections();
 
         connections.register(testConnectionId, mockedSession);
@@ -104,6 +109,7 @@ public class WsConnectionsTest {
         assertThat(underTest.pushSendLogWait().mean(TimeUnit.MICROSECONDS)).isLessThan(TimeUnit.SECONDS.toMicros(1));
         assertThat(underTest.pushSendLockTimeouts()).isEqualTo(0);
         verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
+        verify(circuitBreaker, times(0)).increment();
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
@@ -212,7 +218,8 @@ public class WsConnectionsTest {
         var testMessage = "some message";
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
-        var underTest = newConnections();
+        var circuitBreaker = mock(CircuitBreaker.class);
+        var underTest = newConnections(circuitBreaker);
 
         int iterationCount = 0;
         while (++iterationCount < 1000) {
@@ -240,6 +247,7 @@ public class WsConnectionsTest {
         assertThat(underTest.registrationWaits()).isEqualTo(1);
         assertThat(underTest.registrationTimeoutFlagged()).isEqualTo(0);
         verify(mockedBasicRemote, times(1)).sendText(testMessage);
+        verify(circuitBreaker, times(0)).increment();
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
@@ -251,7 +259,8 @@ public class WsConnectionsTest {
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
         reset(mockedSession); // resets the call getBasicRemote();
-        var underTest = newConnections(Duration.ZERO);
+        var circuitBreaker = mock(CircuitBreaker.class);
+        var underTest = newConnections(Duration.ZERO, WAIT_FOR_SENDMESSAGE_DESATURAITON, circuitBreaker);
 
         try {
             underTest.connections().push(testConnectionId, testMessage);
@@ -275,6 +284,7 @@ public class WsConnectionsTest {
         assertThat(captor.getValue().getCloseCode()).isEqualTo(CloseReason.CloseCodes.TRY_AGAIN_LATER);
         assertThat(captor.getValue().getReasonPhrase()).isEqualTo("registration too late");
         assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(0);
+        verify(circuitBreaker, times(1)).increment();
     }
 
     @Test
@@ -287,7 +297,11 @@ public class WsConnectionsTest {
         var mockedSession = newMockedSession();
         var mockedBasicRemote = mockedSession.getBasicRemote();
         var sendPathDesaturationTimeoutSecs = 3;
-        var underTest = newConnections(Duration.ZERO, Duration.ofSeconds(sendPathDesaturationTimeoutSecs));
+        var circuitBreaker = mock(CircuitBreaker.class);
+        var underTest = newConnections(
+                Duration.ZERO,
+                Duration.ofSeconds(sendPathDesaturationTimeoutSecs),
+                circuitBreaker);
 
         var blockingStart = new CountDownLatch(1);
         var blockingEnd = new CountDownLatch(1);
@@ -323,6 +337,11 @@ public class WsConnectionsTest {
             assertThat(underTest.pushSendLogWait().count()).isEqualTo(2);
             assertThat(underTest.pushSendLogWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
             assertThat(underTest.pushSendLockTimeouts()).isEqualTo(1);
+            verify(circuitBreaker, times(0)).increment();
         }
+    }
+
+    private static CircuitBreaker createCircuitBreaker() {
+        return mock(CircuitBreaker.class);
     }
 }

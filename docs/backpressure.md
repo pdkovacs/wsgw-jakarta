@@ -15,7 +15,7 @@ It is organized in two layers by depth of internal detail:
   is early-stage, this is the most active part of the document.
 
 **How names are written here.** Configuration knobs appear in their camelCase
-configuration form (`pushSendLockTimeout`); metrics appear under their
+configuration form (`connectWaitTimeout`); metrics appear under their
 Micrometer name, which is dot-separated (`wsgw.registration.waits`). The two are
 told apart by shape alone — no other marker is needed.
 
@@ -38,7 +38,10 @@ timer's `_sum` divided by its `_count`.
 
 A metric gets a name here once its meter exists; until then it is described in
 prose, since the exact name and its tag dimensions are settled by the
-implementation.
+implementation. The same holds for a knob: it gets a name here once a
+configuration field exists under that exact name; until then it is described
+in prose, since its exact name and shape are likewise settled by the
+implementation, not by this document.
 
 ---
 
@@ -116,26 +119,26 @@ further pushes to the same connection queue behind it.
 | Knob | Controls |
 |---|---|
 | `pushWaitForRegistration` | How long a push waits for its target connection to finish registering. Applies only to pushes over a *just-opened* connection — one whose id the app already received as part of the new-connection notification but which is not yet available for client-ward traffic. When it expires, the gateway *flags the connection for termination* and answers 410. See "Why the gateway terminates" below. |
-| `pushSendLockTimeout` | How long a push — over a fully functional WebSocket connection — waits for the connection's send path to drain before failing with 429. The push-congestion budget proper. |
-| `pushSendLockTimeoutCountPreemptThresholdMinute` | `pushSendLockTimeout` expirations per minute above which the gateway sheds subsequent pushes preemptively with 503. |
+| `pushWaitForSendMessageDesaturation` | How long a push — over a fully functional WebSocket connection — waits for the connection's send path to drain before failing with 429. The push-congestion budget proper. |
+| push-side preempt threshold, per minute *(not yet implemented — no configuration field exists)* | Send-path-drain timeout expirations per minute above which the gateway would shed subsequent pushes preemptively with 503. |
 
 **Metrics.**
 
 | Metric | Meaning |
 |---|---|
 | `wsgw.send_lock.wait` | How long pushes wait for the connection's send path to free up; the leading indicator of push congestion. Recorded around the `sendLock` acquisition itself, so a wait that ends in a timeout (→ 429) is included alongside successful acquisitions. |
-| `wsgw.send_lock.timeouts` | This counts pushes that failed because the send-lock acquisition timed out; input to the `…PreemptThresholdMinute` threshold. |
+| `wsgw.send_lock.timeouts` | This counts pushes that failed because the send-lock acquisition timed out; would input to the push-side preempt threshold above, once that exists. |
 | `wsgw.registration.waits` | Connections where a push arrived before the connection had finished establishing (see §3). This counts the *race*, which is benign and normally clears in under a millisecond. It is not a distress signal, and thresholding it would shed load during healthy operation. |
-| `wsgw.registration.timeout.flagged` | This counts connections flagged for termination because `pushWaitForRegistration` expired before they registered. Every increment is one connection flagged for termination, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to its preempt threshold. |
+| `wsgw.registration.timeout.flagged` | This counts connections flagged for termination because `pushWaitForRegistration` expired before they registered. Every increment is one connection flagged for termination, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.2 uses it as an input to `connectFailurePreemptThreshold`. |
 | `wsgw.registration.timeout.abandoned` | This gauges the number of connections flagged, but still awaiting termination. |
 
 **Signals.**
 
 | Condition | Signal |
 |---|---|
-| Send path fails to drain within `pushSendLockTimeout` | **429** |
+| Send path fails to drain within `pushWaitForSendMessageDesaturation` | **429** |
 | Connection not registered within `pushWaitForRegistration` | Connection **flagged for termination**; push answers **410 Gone**, no `Retry-After` — see note below |
-| `pushSendLockTimeoutCountPreemptThresholdMinute` exceeded | **503** + `Retry-After` |
+| Push-side preempt threshold exceeded *(not yet implemented)* | **503** + `Retry-After` |
 | Session write error (not backpressure) | **502 Bad Gateway** |
 
 **Dependencies.**
@@ -148,14 +151,14 @@ flowchart TD
     KnobReg -->|"still unregistered when it expires"| FlagForTermination["connection flagged for termination"]
     FlagForTermination --> Sig410(["410 Gone"])
     FlagForTermination --> MetricTerm["wsgw.registration.timeout.flagged\n(metric)"]
-    MetricTerm -.->|feeds| Ext1[["§2.2: connection-establishment\npreempt threshold"]]
+    MetricTerm -.->|feeds| Ext1[["§2.2: connectFailurePreemptThreshold"]]
 
     S0["Push waits for connection's\nsend path to drain"]
     S0 --> MetricAvg["wsgw.send_lock.wait\n(metric — leading indicator only)"]
-    S0 -->|"still waiting when\npushSendLockTimeout expires"| KnobSend{{"pushSendLockTimeout"}}
+    S0 -->|"still waiting when\npushWaitForSendMessageDesaturation expires"| KnobSend{{"pushWaitForSendMessageDesaturation"}}
     KnobSend --> Sig429(["429"])
     KnobSend --> MetricWaitCount["wsgw.send_lock.timeouts\n(metric)"]
-    MetricWaitCount -->|"input to"| KnobPreempt{{"…PreemptThresholdMinute"}}
+    MetricWaitCount -->|"would input to"| KnobPreempt{{"push-side preempt threshold\n(not yet implemented)"}}
     KnobPreempt -->|"breached"| Sig503(["503 + Retry-After"])
 
     WriteErr["session write error\n(not backpressure)"] --> Sig502(["502 Bad Gateway"])
@@ -198,8 +201,8 @@ request to the app and only completes the WebSocket upgrade if the app accepts.
 |---|---|
 | `connectWaitTimeout` | How long the gateway waits for the app's connect acknowledgement before failing with 504. |
 | `maxInFlightConnects` | Admission bound on concurrent connection establishments. |
-| preempt hold-down | Once the preempt threshold trips, how long the gateway keeps shedding before it looks at the failure rate again. Also the basis for the `Retry-After` it sends while shedding. |
-| connection-establishment preempt threshold, per minute | Establishment failures per minute above which the gateway sheds *new* connections with 503. Two metrics count toward it: `wsgw.connect.timeouts` and the `wsgw.registration.timeout.flagged`. Note this is a different knob from §2.1's `pushSendLockTimeoutCountPreemptThresholdMinute`, which sheds pushes on connections that already exist; the two never refer to each other, and neither one's breach affects the other's leg. |
+| `connectFailureCountWindow` / `connectFailurePreemptThreshold` | Establishment failures within a rolling window of `connectFailureCountWindow` above which the gateway sheds *new* connections with 503, once the count exceeds `connectFailurePreemptThreshold`. Two metrics count toward it: `wsgw.connect.timeouts` and the `wsgw.registration.timeout.flagged`. Note this is a different knob pair from §2.1's push-side preempt threshold, which sheds pushes on connections that already exist; the two never refer to each other, and neither one's breach affects the other's leg. |
+| `preemptHoldDown` | Once `connectFailurePreemptThreshold` trips, how long the gateway keeps shedding before it looks at the failure rate again. Also the basis for the `Retry-After` it sends while shedding. |
 
 **Metrics.**
 
@@ -211,7 +214,7 @@ request to the app and only completes the WebSocket upgrade if the app accepts.
 | `wsgw.registration.timeout.flagged` | Connections flagged for termination because they did not register in time (§2.1). |
 
 `wsgw.connect.timeouts` and `wsgw.registration.timeout.flagged` both
-feed the connection-establishment preempt threshold, and both are counts of
+feed `connectFailurePreemptThreshold`, and both are counts of
 establishments that failed — the first observed while waiting for the app's
 acknowledgement, the second observed when a push found the connection still not
 ready and flagged it for termination. They differ only in where the failure was noticed.
@@ -233,7 +236,7 @@ by admission control.)
 while the rate is above the threshold" rule oscillates: shedding cuts the
 arrival rate, so failures fall, so the threshold clears, so the flood resumes and
 trips it again. The gateway therefore stays in shedding mode for the whole of
-`preempt hold-down` once tripped, and only re-evaluates the rate when it expires.
+`preemptHoldDown` once tripped, and only re-evaluates the rate when it expires.
 The hold-down is not a second threshold — it is what keeps the first one from
 chattering.
 
@@ -256,7 +259,7 @@ falls as connects complete, so it clears on its own without chattering, and its
 | Condition | Signal |
 |---|---|
 | App acknowledgement exceeds `connectWaitTimeout` | **504** |
-| Connection-establishment preempt threshold exceeded | **503** + `Retry-After` = jittered time remaining on `preempt hold-down` |
+| `connectFailurePreemptThreshold` exceeded within `connectFailureCountWindow` | **503** + `Retry-After` = jittered time remaining on `preemptHoldDown` |
 | Admission bound exceeded | **503** + best-effort `Retry-After` |
 | App unreachable (not backpressure) | **502 Bad Gateway** |
 | App declined the connect (e.g. 401) | passed through unchanged |
@@ -277,9 +280,9 @@ flowchart TD
     MetricInFlight -->|"input to"| KnobMaxInFlight{{"maxInFlightConnects"}}
     KnobMaxInFlight -->|"breached"| Sig503(["503 + Retry-After"])
 
-    MetricTimeoutCount -->|"input to"| KnobPreempt{{"connection-establishment\npreempt threshold"}}
+    MetricTimeoutCount -->|"input to"| KnobPreempt{{"connectFailureCountWindow /\nconnectFailurePreemptThreshold"}}
     ExtTerm[["§2.1: wsgw.registration.timeout.flagged"]] -.->|"input to"| KnobPreempt
-    KnobPreempt -->|"breached"| KnobHoldDown{{"preempt hold-down"}}
+    KnobPreempt -->|"breached"| KnobHoldDown{{"preemptHoldDown"}}
     KnobHoldDown -->|"shedding; Retry-After =\ntime remaining, jittered"| Sig503
     KnobHoldDown -->|"expired — re-evaluate the rate"| KnobPreempt
 
@@ -385,8 +388,8 @@ visible.
   the connection for termination and answers **410 on `POST /message`** (see the note in §2.1). So
   a slow connect leg does not merely delay pushes; it costs connections, and each
   loss forces a client to reconnect, which feeds more work back into the same
-  slow connect leg. That loop is why the flagged connection count is an input to §2.2's
-  preempt threshold: shedding new connections is what breaks it.
+  slow connect leg. That loop is why the flagged connection count is an input to
+  §2.2's `connectFailurePreemptThreshold`: shedding new connections is what breaks it.
 
   This is distinct from PUSH congestion proper, which answers 429 and leaves the
   connection intact. The two are told apart by which metric moves: a spike in the
@@ -403,8 +406,8 @@ visible.
 
 | Leg | Trigger | HTTP request to answer? | Knobs | Key metrics | Signal (when) |
 |---|---|---|---|---|---|
-| **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushSendLockTimeout`; `…PreemptThresholdMinute` | avg send-lock wait; `wsgw.send_lock.timeouts`; `wsgw.registration.waits`; `wsgw.registration.timeout.flagged` | 429 (send-lock timed out); 410 (not registered in time → connection flagged for termination, §3); 503+`Retry-After` (threshold) |
-| **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | `connectWaitTimeout`; `maxInFlightConnects`; connection-establishment preempt threshold; preempt hold-down | `wsgw.connects.inflight`; connect latency; `wsgw.connect.timeouts`; `wsgw.registration.timeout.flagged` (§2.1) | 504 (app ack timed out); 503+`Retry-After` (admission, or threshold for the rest of the hold-down) |
+| **PUSH** app→client | Delivery exceeds budget (slow client link) | Yes — `POST /message/{id}` | `pushWaitForRegistration`; `pushWaitForSendMessageDesaturation`; push-side preempt threshold (planned) | avg send-lock wait; `wsgw.send_lock.timeouts`; `wsgw.registration.waits`; `wsgw.registration.timeout.flagged` | 429 (send-lock timed out); 410 (not registered in time → connection flagged for termination, §3); 503+`Retry-After` (threshold, planned) |
+| **CONNECT** client→app | App slow to ack `/connect` | Yes — `GET /connect` | `connectWaitTimeout`; `maxInFlightConnects`; `connectFailureCountWindow` / `connectFailurePreemptThreshold`; `preemptHoldDown` | `wsgw.connects.inflight`; connect latency; `wsgw.connect.timeouts`; `wsgw.registration.timeout.flagged` (§2.1) | 504 (app ack timed out); 503+`Retry-After` (admission, or threshold for the rest of the hold-down) |
 | **RELAY** client→app | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout; response deadline; max retries; retry interval | buffer depth/high-water; relay latency; retry & retry-exhaustion counts; block/drop/close counts | none over HTTP → retry → stop reading socket → WS close |
 
 ---
@@ -421,13 +424,13 @@ Handled by `WsConnections.push`, invoked from the `MessageRequest` filter.
 - **429 on timeout** — `[partial]`. `MessageRequest` returns 429 (`"Retry later"`)
   when `push` throws `SendWaitTimedOut`. No `Retry-After` header yet.
 - **The two waits behind §2.1's two knobs** — `[partial]`. `push` runs the two
-  waits sequentially through the `Timeouts` interface: `pushWaitForRegistration`
-  (→ §2.1 `pushWaitForRegistration`) is the *patient* wait absorbing the
-  push-before-register race (Tomcat runs `onOpen` after the 101 is flushed), then
-  `pushWaitForSendMessageDesaturation` (→ §2.1 `pushSendLockTimeout`) is the
-  *fast-fail* wait on the per-session send lock (a `ReentrantLock`). wsgw is wired
-  through the single-arg `WsConnections` constructor, which feeds one hardcoded
-  value (10s) to **both**, so the two knobs are not yet separately configurable.
+  waits sequentially through the `Timeouts` record: `pushWaitForRegistration` is
+  the *patient* wait absorbing the push-before-register race (Tomcat runs
+  `onOpen` after the 101 is flushed), then `pushWaitForSendMessageDesaturation`
+  is the *fast-fail* wait on the per-session send lock (a `ReentrantLock`). wsgw
+  is wired through the single-arg `WsConnections` constructor, which feeds one
+  hardcoded value (10s) to **both**, so the two knobs are not yet separately
+  configurable.
 - **push-before-ready count** — `[partial]`. A Micrometer `Counter`,
   `wsgw.registration.waits` tagged `leg=push`, registered eagerly in the
   `WsConnections` constructor (so the series reads 0 rather than missing before
@@ -466,8 +469,22 @@ Handled by the `ConnectionRequest` filter (`registerWithApp`).
 - **`wsgw.connect.timeouts`** — `[partial]`. A Micrometer `Counter` in
   `ConnectionRequest`, incremented when `HttpTimeoutException` is caught. Same
   `SimpleMeterRegistry` caveat.
-- Connect-to-app latency metric, preempt threshold, preempt hold-down, and
-  `Retry-After` on admission 503 — `[planned]`.
+- **`connectFailureCountWindow` / `connectFailurePreemptThreshold`, `preemptHoldDown`, jittered `Retry-After`** — `[implemented]`.
+  `CircuitBreaker` holds the windowed failure count (`connectFailureCountWindow`,
+  `connectFailurePreemptThreshold`) as decision state separate from the export
+  meters above. Both `wsgw.connect.timeouts` (in `ConnectionRequest`, on
+  `HttpTimeoutException`) and `wsgw.registration.timeout.flagged` (in
+  `WsConnections.push`, on `ConnectionGone`) feed the same shared instance via
+  `increment()`. Once the count exceeds the threshold, `CircuitBreaker` sheds for
+  `preemptHoldDown` and does not re-arm until it elapses — further increments
+  during hold-down don't extend it. `ConnectionRequest.doFilter` checks
+  `CircuitBreaker.jitteredRemaining()` first and answers **503** with
+  `Retry-After` set to that value while shedding. `jitteredRemaining()` scales
+  the true remaining hold-down by a random fraction in `[0.5, 1.0]` so callers
+  shed at different points during the same hold-down don't all retry at the
+  instant the gate reopens (which would just re-trip the threshold).
+- Connect-to-app latency metric and `Retry-After` on admission 503 —
+  `[planned]`.
 
 ### 5.3 RELAY
 
@@ -494,25 +511,25 @@ touch.
 
 | Contract element | Code site | Status          | Gap |
 |---|---|-----------------|---|
-| §2.1 `pushSendLockTimeout` (send-desaturation budget) | `Timeouts.getWaitForSendMessageDesaturation`; value from `Configuration.getPushToClientWaitTimeout()` | `[partial]`     | hardcoded 10s; shares the one value with `pushWaitForRegistration`, not independently configurable |
-| §2.1 `pushWaitForRegistration` (race tolerance) | `Timeouts.getPushWaitForRegistration` | `[partial]`     | fed the same 10s via the single-arg `WsConnections` ctor; not separately configurable |
+| §2.1 `pushWaitForSendMessageDesaturation` (send-desaturation budget) | `Timeouts.pushWaitForSendMessageDesaturation()`; value from `Configuration.getPushWaitForSendMessageDesaturation()` | `[partial]`     | hardcoded 10s; shares the one value with `pushWaitForRegistration`, not independently configurable |
+| §2.1 `pushWaitForRegistration` (race tolerance) | `Timeouts.pushWaitForRegistration()`; value from `Configuration.getPushToClientWaitTimeout()` | `[partial]`     | fed the same 10s via the single-arg `WsConnections` ctor; not separately configurable |
 | §2.1 signal 429 (send-lock timeout) | `MessageRequest.doFilter` (`SendWaitTimedOut` → 429) | `[partial]`     | no `Retry-After` |
 | §2.1 `wsgw.registration.timeout.flagged` | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.push` (`registrationTimeoutFlagged` counter) | `[implemented]` | |
 | §2.1 `wsgw.registration.timeout.abandoned` | `WsConnections` (`Gauge` over `AtomicInteger`); incremented in `push` (`ConnectionGone` catch), decremented in `register` (tombstone path) | `[implemented]` | |
 | §2.1 signal 410 (connection terminated) | `MessageRequest.doFilter` (`ConnectionGone` → 410) | `[implemented]` | |
 | §2.1 close code 1013 on termination | — | `[implemented]` | |
-| §2.1 signal 503 + `…PreemptThresholdMinute` | — | `[planned]`     | |
-| §2.1 metric `wsgw.send_lock.timeouts` | — | `[planned]`     | feeds the 503 threshold |
+| §2.1 signal 503 + push-side preempt threshold | — | `[planned]`     | no configuration field exists yet for the threshold or its window |
+| §2.1 metric `wsgw.send_lock.timeouts` | `WsConnection.sendMessage` → `wsgw.send_lock.timeouts` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable; would feed the 503 threshold above once that exists |
 | §2.1 metric average send-lock wait time | `WsConnection.sendMessage` → `wsgw.send_lock.wait` (`Timer`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.1 metric push-before-ready | `WsConnections.push` → `wsgw.registration.waits` (`Counter`, `leg=push`); registry from `Wsgw.meterRegistry` | `[partial]`     | recorded, but into a `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.2 `connectWaitTimeout` + 504 signal | `ConnectionRequest`: `connectWaitTimeout` from `Configuration.getConnectWaitTimeout()` (default 10s); passed as request timeout to `Request.send`; `HttpTimeoutException` → 504 | `[implemented]` | |
 | §2.2 `maxInFlightConnects` + 503 signal | `ConnectionRequest.doFilter` (`inFlights > maxInflightConnections` → 503) | `[partial]` | no `Retry-After` |
 | §2.2 metric `wsgw.connects.inflight` | `ConnectionRequest` → `Gauge` over `AtomicInteger`; registry from `Wsgw.meterRegistry` | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable |
-| §2.2 metric `wsgw.connect.timeouts` | `ConnectionRequest` → `Counter`; incremented on `HttpTimeoutException`; registry from `Wsgw.meterRegistry` | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable; also feeds the preempt threshold (§2.2) once that is implemented |
+| §2.2 metric `wsgw.connect.timeouts` | `ConnectionRequest` → `Counter`; incremented on `HttpTimeoutException`; registry from `Wsgw.meterRegistry` | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable; also feeds `CircuitBreaker`, the preempt threshold's decision state (§2.2 row below) |
 | §2.2 connect-to-app latency metric | `ConnectionRequest.registerWithApp` | `[planned]` | |
-| §2.2 preempt threshold, preempt hold-down, `Retry-After` on admission 503 | `ConnectionRequest.doFilter` | `[planned]` | |
-| §2.2 preempt hold-down + `Retry-After` = jittered remainder | shared failure-rate window read by `ConnectionRequest.registerWithApp`; incremented there and in `WsConnections.push` | `[planned]`     | the threshold is a *rate*, so a cumulative `Counter` cannot drive it — needs a windowed count as decision state, separate from the export meters; the shed state and its remaining hold-down must be readable where the 503 is written |
-| §2.2 termination count as a threshold input | `WsConnections.push` → `wsgw.registration.timeout.flagged` (`Counter`, `leg=push`) | `[partial]`     | counter is recorded; threshold logic and windowed count not yet implemented |
+| §2.2 `connectFailureCountWindow` / `connectFailurePreemptThreshold` / `preemptHoldDown` | `CircuitBreaker` (windowed count as decision state, separate from the export meters); constructed in `Wsgw` from `Configuration.getConnectFailureCountWindow()` / `getConnectFailurePreemptThreshold()` / `getPreemptHoldDown()`; checked and incremented from `ConnectionRequest.doFilter` and `WsConnections.push` | `[implemented]` | admission bound's own `Retry-After` (line above) is still separate and still missing |
+| §2.2 `Retry-After` = jittered remainder | `CircuitBreaker.jitteredRemaining()`; read by `ConnectionRequest.doFilter` when answering 503 | `[implemented]` | random fraction in `[0.5, 1.0]` of `CircuitBreaker.remaining()`, via an injectable `DoubleSupplier` (mirrors the `Clock` injection already used for the window/hold-down math) |
+| §2.2 termination count as a threshold input | `WsConnections.push` → `wsgw.registration.timeout.flagged` (`Counter`, `leg=push`) feeds `CircuitBreaker.increment()` on `ConnectionGone` | `[implemented]` | |
 | §2.3 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
 | §2.3 relay enqueue timeout + its three actions + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]`     | no fast-fail, no stop-reading / WS close, no metric |
 | §2.3 relay response deadline | `Request.appClient` | `[planned]`     | no per-request timeout, so nothing bounds a relay the app never answers |
