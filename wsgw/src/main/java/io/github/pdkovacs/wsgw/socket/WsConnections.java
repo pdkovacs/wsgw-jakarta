@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw.socket;
 
+import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
@@ -37,16 +38,22 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     }
 
     private final Timeouts timeouts;
+    private final CircuitBreaker circuitBreaker;
     private final Meters meters;
 
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
 
-    public WsConnections(Duration pushToClientWaitTimeout, Duration pushWaitForSendMessageDesaturation, MeterRegistry registry) {
-        this(new Timeouts(pushToClientWaitTimeout, pushWaitForSendMessageDesaturation), registry);
+    public WsConnections(
+            Duration pushToClientWaitTimeout,
+            Duration pushWaitForSendMessageDesaturation,
+            CircuitBreaker circuitBreaker,
+            MeterRegistry registry) {
+        this(new Timeouts(pushToClientWaitTimeout, pushWaitForSendMessageDesaturation), circuitBreaker, registry);
     }
 
-    public WsConnections(Timeouts timeouts, MeterRegistry registry) {
+    public WsConnections(Timeouts timeouts, CircuitBreaker circuitBreaker, MeterRegistry registry) {
         this.timeouts = timeouts;
+        this.circuitBreaker = circuitBreaker;
         this.meters = Meters.create(registry);
     }
 
@@ -102,6 +109,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         } catch (ConnectionGone connectionGone) {
             meters.registrationTimeoutFlagged().increment();
             meters.registrationTimeoutAbandoned().incrementAndGet();
+            circuitBreaker.increment();
             throw connectionGone;
         }
     }

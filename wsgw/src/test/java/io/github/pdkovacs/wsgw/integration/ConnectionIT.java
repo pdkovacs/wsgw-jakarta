@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.integration;
 
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.Configuration;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.websocket.DeploymentException;
@@ -48,6 +49,12 @@ public class ConnectionIT {
 
     private void assertFailureBeforeUpgrade(String assertionContext, int expectedHttpStatusCode, String wsgwPath,
                                             String[] apiKey) {
+        HttpResponse<String> response = rawConnect(apiKey);
+        assertThat(response.statusCode()).as(assertionContext).isEqualTo(expectedHttpStatusCode);
+    }
+
+    private HttpResponse<String> rawConnect(String[] apiKey) {
+        String wsgwPath = "/connect";
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://%s"
                         .formatted(wsgwTestContext.getWsgwServerName())
@@ -58,10 +65,14 @@ public class ConnectionIT {
         try {
             response = wsgwTestContext.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (Exception e) {
-            logger.error("Failed to connect to app ({})", wsgwTestContext.getWsgwServerName(), e);
+            logger.error("Failed to connect to app ({})", wsgwPath, e);
             throw new RuntimeException(e);
         }
-        assertThat(response.statusCode()).as(assertionContext).isEqualTo(expectedHttpStatusCode);
+        return response;
+    }
+
+    private HttpResponse<String> rawConnect() {
+        return rawConnect(wsgwTestContext.fakeAppConfig.getApiKey());
     }
 
     @Test
@@ -159,6 +170,56 @@ public class ConnectionIT {
         }
     }
 
+    @Test
+    void connectionEstablishmentPreemptThresholdExceeded(@TempDir Path tempDir) throws Exception {
+        var mLogger = logger.with("method", "connectionEstablishmentPreemptThresholdExceeded");
+
+        var connectWaitTimeout = Duration.ofMillis(100);
+        var connectFailurePreemptThreshold = 1;
+
+        var config = new Configuration();
+        config.setBaseDir(tempDir.resolve("wsgw"));
+        config.setConnectFailurePreemptThreshold(connectFailurePreemptThreshold);
+
+
+        config.setConnectWaitTimeout(connectWaitTimeout);
+        wsgwTestContext.setUp(tempDir, config);
+        wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(() -> {
+            try {
+                Thread.sleep(connectWaitTimeout.plus(connectWaitTimeout));
+            } catch (InterruptedException e) {
+                mLogger.warn("Connect app impl interrupted");
+            }
+        });
+
+        rawConnect();
+        // And pass the threshold:
+        rawConnect();
+
+        // Trigger the signal:
+        var response = rawConnect();
+        assertThat(response.statusCode()).as("503 from /connect pre-empt").isEqualTo(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        // Retry-After is jittered to a random fraction in [CircuitBreaker.MIN_JITTER_FRACTION, 1.0]
+        // of the true remaining hold-down (CircuitBreaker.jitteredRemaining()), so assert a range
+        // rather than the exact remaining, with the same -1s slack for the seconds truncation as before.
+        assertRetryAfterWithinJitteredRange(response, config.getPreemptHoldDown().toSeconds() - 1);
+
+        var moreHoldDownSec = 3;
+        Thread.sleep(Duration.ofSeconds(moreHoldDownSec));
+        response = rawConnect();
+        assertRetryAfterWithinJitteredRange(response, config.getPreemptHoldDown().toSeconds() - 1 - moreHoldDownSec);
+    }
+
+    private void assertRetryAfterWithinJitteredRange(HttpResponse<String> response, long exactRemainingSecs) {
+        var retryAfter = response.headers().firstValue("Retry-After");
+        assertThat(retryAfter).as("503 from /connect pre-empt hold-down period").isPresent();
+        var retryAfterSecs = Long.parseLong(retryAfter.get());
+        var lowerBoundSecs = Math.round(exactRemainingSecs * CircuitBreaker.MIN_JITTER_FRACTION) - 1;
+        assertThat(retryAfterSecs)
+                .as("503 from /connect pre-empt hold-down period, jittered")
+                .isBetween(lowerBoundSecs, exactRemainingSecs);
+    }
+
     private void connectChecked(CountDownLatch connectionEstablished, boolean join) throws Exception {
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
         final Exception[] savedException = new Exception[1];
@@ -175,7 +236,7 @@ public class ConnectionIT {
                 logger.error("[connectChecked]: test client failed to connect", e);
             }
         });
-        if  (join) {
+        if (join) {
             t.join();
             if (savedException[0] != null) {
                 throw savedException[0];
