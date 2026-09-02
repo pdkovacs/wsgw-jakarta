@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 
@@ -34,7 +35,7 @@ public class WsgwTestContext {
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = Request.createHttpClient();
-    final WsTestClients wsTestClients = new WsTestClients();
+    WsTestClients wsTestClients;
     Meters meters;
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -44,10 +45,8 @@ public class WsgwTestContext {
 
     FakeAppConfig fakeAppConfig;
 
-    public WsgwTestContext() {
-    }
-
-    public void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
+    public void setUp(Path tempDir, Configuration wsgwConfig, Duration pushTimeout) throws Exception {
+        wsTestClients = new WsTestClients(pushTimeout == null ? Duration.ofSeconds(5) : pushTimeout);
         fakeAppConfig = new FakeAppConfig(tempDir, new String[]{"XKEY", "asdfqwe"});
         int appPort = fakeApp.start(fakeAppConfig);
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
@@ -63,7 +62,7 @@ public class WsgwTestContext {
         var config = new Configuration();
         config.setBaseDir(tempDir.resolve("wsgw"));
         config.setAppwardDispatcherQueueSize(1);
-        setUp(tempDir, config);
+        setUp(tempDir, config, null);
     }
 
     public void tearDown() throws Exception {
@@ -71,6 +70,7 @@ public class WsgwTestContext {
         wsgw.stop();
         fakeApp.stop();
         httpClient.close();
+        wsTestClients.close();
     }
 
     public String getWsgwServerName() {

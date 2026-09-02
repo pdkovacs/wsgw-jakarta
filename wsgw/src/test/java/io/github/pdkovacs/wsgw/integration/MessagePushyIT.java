@@ -1,14 +1,19 @@
 package io.github.pdkovacs.wsgw.integration;
 
+import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.TestWatcher;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
@@ -31,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * failures are collected, and we assert on the aggregate rate. Delivery correctness is still
  * every push that got an OK response must reach its inbox.
  */
+@ExtendWith(MessagePushyIT.PushyStatsOnFailure.class)
 public class MessagePushyIT {
 
     private static final CtxLogger logger = CtxLogger.of(MessagePushyIT.class);
@@ -46,7 +52,16 @@ public class MessagePushyIT {
     // ~1,000,000 virtual threads (and their buffers) pile up and thrash the *test* JVM's heap.
     private static final int MAX_IN_FLIGHT_PUSHES = 20000;
 
+    private static final Duration PUSH_TIMEOUT = Duration.ofSeconds(60);
+
     private final WsgwTestContext wsgwTestContext = new WsgwTestContext();
+
+    // Load state, kept as fields (rather than test-method locals) so a JUnit @Timeout interrupt
+    // still leaves them readable by PushyStatsOnFailure below.
+    private final Collection<ClientTestCtx> processed = new ConcurrentLinkedQueue<>();
+    private final Collection<Throwable> transportFailures = new ConcurrentLinkedQueue<>();
+    private final LongAdder attempts = new LongAdder();
+    private final Semaphore inFlight = new Semaphore(MAX_IN_FLIGHT_PUSHES);
 
     private record ClientTestCtx(
             WebsocketTestClient testClient,
@@ -57,7 +72,7 @@ public class MessagePushyIT {
 
     @BeforeEach
     public void setUp(@TempDir Path tempDir) throws Exception {
-        wsgwTestContext.setUp(tempDir);
+        wsgwTestContext.setUp(tempDir, new Configuration(), PUSH_TIMEOUT);
     }
 
     @AfterEach
@@ -75,10 +90,6 @@ public class MessagePushyIT {
 
         final String wsgwServerName = wsgwTestContext.getWsgwServerName();
         final WsTestClients testClients = wsgwTestContext.wsTestClients;
-
-        final Collection<ClientTestCtx> processed = new ConcurrentLinkedQueue<>();
-        final Collection<Throwable> transportFailures = new ConcurrentLinkedQueue<>();
-        final LongAdder attempts = new LongAdder();
 
         // Phase 1: establish every client connection. Each gets its own HTTP push client on
         // purpose: 1000 separate h2 connections spread the push load across 1000 Tomcat
@@ -104,7 +115,6 @@ public class MessagePushyIT {
         // once and thrash the test JVM into GC oblivion -- exactly what the original fail-fast
         // quietly prevented by aborting at the first error. The semaphore keeps offered load
         // high but finite, so we measure the gateway rather than an OOM.
-        final Semaphore inFlight = new Semaphore(MAX_IN_FLIGHT_PUSHES);
         try (var sendExec = Executors.newVirtualThreadPerTaskExecutor()) {
             // client -> app: one sequential stream per client (a single WS session must not be
             // sent to concurrently).
@@ -130,7 +140,7 @@ public class MessagePushyIT {
                 for (int i = 0; i < nrMessagesToSend; i++) {
                     inFlight.acquire();
                     attempts.increment();
-                    sendExec.submit(() -> {
+                    Thread.ofVirtual().start(() -> {
                         try {
                             ctx.ackedToClient().add(client.postMessageFromApp());
                         } catch (Throwable t) {
@@ -138,10 +148,10 @@ public class MessagePushyIT {
                         } finally {
                             inFlight.release();
                         }
-                        return null;
                     });
                 }
             }
+            inFlight.acquire(MAX_IN_FLIGHT_PUSHES);
         } // awaits all sends
 
         // Correctness: every acked message must have been delivered to the far inbox.
@@ -187,8 +197,7 @@ public class MessagePushyIT {
         long total = attempts.sum();
         long failed = failures.size();
         double rate = total == 0 ? 0.0 : (double) failed / total;
-        Map<String, Long> byType = failures.stream().collect(
-                Collectors.groupingBy(t -> rootCause(t).getClass().getSimpleName(), Collectors.counting()));
+        Map<String, Long> byType = failureBreakdown(failures);
 
         log.info("Pushy load done: attempts={}, transport failures={} ({}), breakdown={}",
                 total, failed, "%.4f%%".formatted(rate * 100), byType);
@@ -196,6 +205,11 @@ public class MessagePushyIT {
         assertThat(rate)
                 .as("transport failure rate %d/%d, breakdown %s", failed, total, byType)
                 .isLessThanOrEqualTo(MAX_TRANSPORT_FAILURE_RATE);
+    }
+
+    private static Map<String, Long> failureBreakdown(Collection<Throwable> failures) {
+        return failures.stream().collect(
+                Collectors.groupingBy(t -> rootCause(t).getClass().getSimpleName(), Collectors.counting()));
     }
 
     private static String sendMessageFromClientToApp(WebsocketTestClient client, String connId) throws IOException {
@@ -210,5 +224,25 @@ public class MessagePushyIT {
             c = c.getCause();
         }
         return c;
+    }
+
+    // On a @Timeout interrupt, sendReceiveMessagesFromAppMultipleClientsPushy() throws before
+    // assertFailureRateWithinTolerance() ever runs, so that summary is otherwise lost. This dumps
+    // the same kind of snapshot from whatever load state survived the interrupt.
+    static class PushyStatsOnFailure implements TestWatcher {
+        @Override
+        public void testFailed(ExtensionContext context, Throwable cause) {
+            var test = (MessagePushyIT) context.getRequiredTestInstance();
+            long total = test.attempts.sum();
+            long failed = test.transportFailures.size();
+            double rate = total == 0 ? 0.0 : (double) failed / total;
+
+            logger.warn(
+                    "Pushy load snapshot at failure ({}): clients connected={}, attempts={}, "
+                            + "transport failures={} ({}), breakdown={}, pushes in flight now={}",
+                    cause.getClass().getSimpleName(), test.processed.size(), total, failed,
+                    "%.4f%%".formatted(rate * 100), failureBreakdown(test.transportFailures),
+                    MAX_IN_FLIGHT_PUSHES - test.inFlight.availablePermits());
+        }
     }
 }

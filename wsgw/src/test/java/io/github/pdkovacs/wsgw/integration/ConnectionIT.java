@@ -83,7 +83,7 @@ public class ConnectionIT {
         var timeOut = Duration.ofSeconds(3);
 
         config.setConnectWaitTimeout(timeOut.minus(Duration.ofSeconds(1)));
-        wsgwTestContext.setUp(tempDir, config);
+        wsgwTestContext.setUp(tempDir, config, null);
 
         var appConnectImplBlocking = new CountDownLatch(2);
         var unblockAppConnect = new CountDownLatch(1);
@@ -135,7 +135,7 @@ public class ConnectionIT {
         var appConnectImplBlocking = new CountDownLatch(1);
         var unblockAppConnectImpl = new CountDownLatch(1);
         try {
-            wsgwTestContext.setUp(tempDir, config);
+            wsgwTestContext.setUp(tempDir, config, null);
             wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectionIT.createWaitImpl(appConnectImplBlocking, unblockAppConnectImpl));
 
             // ACT

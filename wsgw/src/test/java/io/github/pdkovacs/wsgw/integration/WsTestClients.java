@@ -17,6 +17,7 @@ import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -28,16 +29,16 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientEndpoint testClientEndpoint,
                            WsWebSocketContainer container, Session websocketClientSession,
-                           String connectionId, BlockingQueue<Message> messageInbox) implements AutoCloseable {
+                           String connectionId, BlockingQueue<Message> messageInbox, Duration pushTimeout) {
     private static final CtxLogger logger = CtxLogger.of(WebsocketTestClient.class);
 
     public static WebsocketTestClient of(
             String wsgwServer, TestClientEndpoint testClientEndpoint,
             WsWebSocketContainer container,
             Session websocketClientSession, String connectionId,
-            BlockingQueue<Message> messageInbox) {
+            BlockingQueue<Message> messageInbox, Duration pushTimeout) {
         return new WebsocketTestClient(wsgwServer, Request.createHttpClient(HttpClient.Version.HTTP_2),
-                testClientEndpoint, container, websocketClientSession, connectionId, messageInbox);
+                testClientEndpoint, container, websocketClientSession, connectionId, messageInbox, pushTimeout);
     }
 
     public @NonNull String postMessageFromApp()
@@ -71,12 +72,19 @@ class WsTestClients implements AutoCloseable {
     final private static Logger logger = LoggerFactory.getLogger(WsTestClients.class);
 
     private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
+    private final Duration pushTimeout;
+
+    WsTestClients(Duration pushTimeout) {
+        this.pushTimeout = pushTimeout;
+    }
 
     WebsocketTestClient connect(String wsgwServerName, String[] apiKey) throws Exception {
         return connect(wsgwServerName, apiKey, null);
     }
 
-    WebsocketTestClient connect(String wsgwServerName, String[] apiKey, CountDownLatch readyLatch) throws Exception {
+    WebsocketTestClient connect(String wsgwServerName,
+                                String[] apiKey,
+                                CountDownLatch readyLatch) throws Exception {
         // createConnectWebsocketClient already registers the client for teardown, so don't add twice.
         return createConnectWebsocketClient(wsgwServerName, apiKey, readyLatch);
     }
@@ -128,7 +136,7 @@ class WsTestClients implements AutoCloseable {
         // here — no latch needed.
         var wsTestClient = WebsocketTestClient.of(
                 wsgwServerName, testClientEndpoint, (WsWebSocketContainer) container, session,
-                futureConnectionId.get(), messageInbox);
+                futureConnectionId.get(), messageInbox, pushTimeout);
         // Send a warm-up request to prime the h2c connection as long as no-concurrency is guaranteed,
         // because concurrent requests sporadically fall back to HTTP/1.1 under stress
         wsTestClient.postMessageFromApp();
