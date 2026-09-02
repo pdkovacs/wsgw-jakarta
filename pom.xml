@@ -129,6 +129,7 @@
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>${failsafe-plugin.version}</version>
                     <configuration>
+                        <argLine>-XX:+HeapDumpOnOutOfMemoryError -Xlog:gc</argLine>
                         <reportFormat>plain</reportFormat>
                         <consoleOutputReporter>
                             <disable>${test.consoleOutput.disable}</disable>

@@ -11,13 +11,16 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 
 public class WsgwTestContext {
 
     private static final CtxLogger logger = CtxLogger.of(WsgwTestContext.class);
     public static final int APPWARD_DISPATCHER_QUEUE_SIZE = 1;
+    public static final Duration DEFAULT_PUSH_REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
     record Meters(MeterRegistry registry) {
         int connectTimeouts() {
@@ -34,7 +37,7 @@ public class WsgwTestContext {
 
     final ConnectionIdGeneratorMock connectionIdGeneratorMock = new ConnectionIdGeneratorMock();
     final HttpClient httpClient = Request.createHttpClient();
-    final WsTestClients wsTestClients = new WsTestClients();
+    WsTestClients wsTestClients;
     Meters meters;
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -44,10 +47,9 @@ public class WsgwTestContext {
 
     FakeAppConfig fakeAppConfig;
 
-    public WsgwTestContext() {
-    }
-
-    public void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
+    public void setUp(Path tempDir, Configuration wsgwConfig, Duration pushRequestTimeout) throws Exception {
+        Objects.requireNonNull(pushRequestTimeout);
+        wsTestClients = new WsTestClients(pushRequestTimeout);
         fakeAppConfig = new FakeAppConfig(tempDir, new String[]{"XKEY", "asdfqwe"});
         int appPort = fakeApp.start(fakeAppConfig);
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
@@ -59,15 +61,21 @@ public class WsgwTestContext {
         meters = new Meters(meterRegistry);
     }
 
+    public void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
+        setUp(tempDir, wsgwConfig, DEFAULT_PUSH_REQUEST_TIMEOUT);
+    }
+
+
     public void setUp(Path tempDir) throws Exception {
         var config = new Configuration();
         config.setBaseDir(tempDir.resolve("wsgw"));
         config.setAppwardDispatcherQueueSize(1);
-        setUp(tempDir, config);
+        setUp(tempDir, config, Duration.ofSeconds(5));
     }
 
     public void tearDown() throws Exception {
         logger.debug("Tearing down WsgwTestContext");
+        wsTestClients.close();
         wsgw.stop();
         fakeApp.stop();
         httpClient.close();

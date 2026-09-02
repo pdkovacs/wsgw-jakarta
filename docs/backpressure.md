@@ -141,6 +141,18 @@ further pushes to the same connection queue behind it.
 | Push-side preempt threshold exceeded *(not yet implemented)* | **503** + `Retry-After` |
 | Session write error (not backpressure) | **502 Bad Gateway** |
 
+**A transport-level failure on this request is not a backpressure signal.** The
+caller's connection to the gateway can be closed by ordinary HTTP keep-alive
+expiry — invisible from outside and independent of load — so a POST to this
+endpoint can fail with no response at all even while the gateway is otherwise
+healthy and none of §1's codes apply. This is the same class of failure any HTTP
+server can produce for any pooled client connection; it is not specific to
+congestion, and wsgw cannot distinguish "the message never arrived" from "the
+response was lost after the message arrived." Callers must retry such failures
+on a fresh connection themselves, which — as with §2.3's retry contract for
+RELAY — means accepting occasional duplicate delivery as the cost of
+at-least-once semantics on this leg.
+
 **Dependencies.**
 
 ```mermaid
