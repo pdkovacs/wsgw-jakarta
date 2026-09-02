@@ -17,6 +17,7 @@ import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -28,17 +29,24 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientEndpoint testClientEndpoint,
                            WsWebSocketContainer container, Session websocketClientSession,
-                           String connectionId, BlockingQueue<Message> messageInbox) implements AutoCloseable {
+                           String connectionId, BlockingQueue<Message> messageInbox, Duration pushRequestTimeout) {
     private static final CtxLogger logger = CtxLogger.of(WebsocketTestClient.class);
 
     public static WebsocketTestClient of(
             String wsgwServer, TestClientEndpoint testClientEndpoint,
             WsWebSocketContainer container,
             Session websocketClientSession, String connectionId,
-            BlockingQueue<Message> messageInbox) {
+            BlockingQueue<Message> messageInbox, Duration pushRequestTimeout) {
         return new WebsocketTestClient(wsgwServer, Request.createHttpClient(HttpClient.Version.HTTP_2),
-                testClientEndpoint, container, websocketClientSession, connectionId, messageInbox);
+                testClientEndpoint, container, websocketClientSession, connectionId, messageInbox, pushRequestTimeout);
     }
+
+    // A connection can die between requests (e.g. Tomcat's idle-connection keep-alive) with
+    // no fault of the message itself; one retry on a fresh connection is standard practice for
+    // that class of failure (see java.net.http and Go net/http, which both do this internally
+    // for idempotent requests) and is safe here because the client tolerates duplicate delivery
+    // (see MessagePushyIT.awaitDelivered).
+    private static final int PUSH_ATTEMPTS = 2;
 
     public @NonNull String postMessageFromApp()
             throws IOException, InterruptedException, URISyntaxException {
@@ -48,13 +56,22 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
         String msgToClientUrl = "http://%s%s".formatted(wsgwServer, msgToClientPath);
         HttpRequest request = HttpRequest.newBuilder(new URI(msgToClientUrl))
                 .POST(HttpRequest.BodyPublishers.ofString(messageFromApp))
-//                .timeout(Duration.ofSeconds(1))
+                .timeout(pushRequestTimeout)
                 .build();
-        tcLoggerr.debug("Sending request...");
-        var response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-        Assertions.assertThat(response.version()).isEqualTo(HttpClient.Version.HTTP_2);
-        tcLoggerr.debug("Request sent");
-        return messageFromApp;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                tcLoggerr.debug("Sending request...");
+                var response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+                Assertions.assertThat(response.version()).isEqualTo(HttpClient.Version.HTTP_2);
+                tcLoggerr.debug("Request sent");
+                return messageFromApp;
+            } catch (IOException e) {
+                if (attempt >= PUSH_ATTEMPTS) {
+                    throw e;
+                }
+                tcLoggerr.with("attempt", attempt).warn("Push failed, retrying on a fresh connection", e);
+            }
+        }
     }
 
     public void close() throws Exception {
@@ -63,7 +80,7 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
         logger.debug("Closing session...");
         websocketClientSession.close();
         container.destroy();
-        httpClient.close();
+        httpClient.shutdownNow();
     }
 }
 
@@ -71,12 +88,19 @@ class WsTestClients implements AutoCloseable {
     final private static Logger logger = LoggerFactory.getLogger(WsTestClients.class);
 
     private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
+    private final Duration pushRequestTimeout;
+
+    WsTestClients(Duration pushRequestTimeout) {
+        this.pushRequestTimeout = pushRequestTimeout;
+    }
 
     WebsocketTestClient connect(String wsgwServerName, String[] apiKey) throws Exception {
         return connect(wsgwServerName, apiKey, null);
     }
 
-    WebsocketTestClient connect(String wsgwServerName, String[] apiKey, CountDownLatch readyLatch) throws Exception {
+    WebsocketTestClient connect(String wsgwServerName,
+                                String[] apiKey,
+                                CountDownLatch readyLatch) throws Exception {
         // createConnectWebsocketClient already registers the client for teardown, so don't add twice.
         return createConnectWebsocketClient(wsgwServerName, apiKey, readyLatch);
     }
@@ -128,7 +152,7 @@ class WsTestClients implements AutoCloseable {
         // here — no latch needed.
         var wsTestClient = WebsocketTestClient.of(
                 wsgwServerName, testClientEndpoint, (WsWebSocketContainer) container, session,
-                futureConnectionId.get(), messageInbox);
+                futureConnectionId.get(), messageInbox, pushRequestTimeout);
         // Send a warm-up request to prime the h2c connection as long as no-concurrency is guaranteed,
         // because concurrent requests sporadically fall back to HTTP/1.1 under stress
         wsTestClient.postMessageFromApp();
