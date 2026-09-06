@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
-import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
+import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
@@ -19,7 +19,7 @@ class WsConnection {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnection.class);
 
-    record Metrics(Timer sendLockWait, Counter pushWaitTimeouts) {}
+    record Metrics(Timer sendLockWait, Counter sendLockTimeouts) {}
 
     private final Metrics metrics;
     private final String connectionId;
@@ -68,11 +68,11 @@ class WsConnection {
     }
 
     public void sendMessage(String message, Timeouts timeouts) throws IOException, InterruptedException, ExecutionException {
-        waitForSessionRegistrationToComplete(timeouts.pushWaitForRegistration());
-        sendMessageSessionAssumed(message, timeouts.pushWaitForSendMessageDesaturation());
+        waitForSessionRegistrationToComplete(timeouts.registrationWaitTimeout());
+        sendMessageSessionAssumed(message, timeouts.sendLockWaitTimeout());
     }
 
-    private void waitForSessionRegistrationToComplete(Duration pushWaitForRegistration) throws InterruptedException {
+    private void waitForSessionRegistrationToComplete(Duration registrationWaitTimeout) throws InterruptedException {
         var mLogger = logger.with("connectionId", connectionId).with("method", "waitForSessionRegistrationToComplete");
 
         if (registeredSession != null) {
@@ -86,7 +86,7 @@ class WsConnection {
         }
 
         synchronized (registrationLock) {
-            var budget = pushWaitForRegistration;
+            var budget = registrationWaitTimeout;
             while (budget.isPositive() && registeredSession == null) {
                 mLogger.debug("waiting for session...");
                 var start = System.nanoTime();
@@ -103,7 +103,7 @@ class WsConnection {
         }
     }
 
-    private void sendMessageSessionAssumed(String message, Duration waitForSendMessageDesaturation) throws IOException, InterruptedException {
+    private void sendMessageSessionAssumed(String message, Duration sendLockWaitTimeout) throws IOException, InterruptedException {
         var mLogger = logger.with("connectionId", connectionId).with("method", "sendMessage");
         if (registeredSession == null) {
             mLogger.warn("No registered session");
@@ -112,10 +112,10 @@ class WsConnection {
         mLogger.debug("about to wait for sendLock");
         var start = System.nanoTime();
         try {
-            if (!sendLock.tryLock(waitForSendMessageDesaturation.toMillis(), MILLISECONDS)) {
-                mLogger.debug("failed to acquire sendLock", waitForSendMessageDesaturation);
-                metrics.pushWaitTimeouts.increment();
-                throw new SendWaitTimedOut(connectionId);
+            if (!sendLock.tryLock(sendLockWaitTimeout.toMillis(), MILLISECONDS)) {
+                mLogger.debug("failed to acquire sendLock", sendLockWaitTimeout);
+                metrics.sendLockTimeouts.increment();
+                throw new SendLockWaitTimedOut(connectionId);
             }
         } finally {
             var end = System.nanoTime();

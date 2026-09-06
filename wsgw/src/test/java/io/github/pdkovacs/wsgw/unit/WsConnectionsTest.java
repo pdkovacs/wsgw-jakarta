@@ -2,7 +2,7 @@ package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
-import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
+import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.socket.Timeouts;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -55,23 +55,23 @@ public class WsConnectionsTest {
         // Eagerly registered in the WsConnections ctor, so this read succeeds (returning 0) even in
         // arms where no push ever raced -- the count, not a MeterNotFoundException, is the signal.
         int registrationWaits() {
-            return (int) registry.get("wsgw.registration.waits").tag("leg", "push").counter().count();
+            return (int) registry.get("wsgw.registration.waits").tag("flow", "connect").tag("site", "registration").counter().count();
         }
 
         int registrationTimeoutFlagged() {
-            return (int) registry.get("wsgw.registration.timeout.flagged").tag("leg", "push").counter().count();
+            return (int) registry.get("wsgw.registration.timeout.flagged").tag("flow", "connect").tag("site", "registration").counter().count();
         }
 
         int registrationTimeoutAbondoned() {
-            return (int) registry.get("wsgw.registration.timeout.abandoned").tag("leg", "push").gauge().value();
+            return (int) registry.get("wsgw.registration.timeout.abandoned").tag("flow", "connect").tag("site", "registration").gauge().value();
         }
 
-        Timer pushSendLogWait() {
-            return registry.get("wsgw.send_lock.wait").tag("leg", "push").timer();
+        Timer sendLockWait() {
+            return registry.get("wsgw.send_lock.wait").tag("flow", "push").tag("site", "gw_to_client").timer();
         }
 
-        int pushSendLockTimeouts() {
-          return (int) registry.get("wsgw.send_lock.timeouts").tag("leg", "push").counter().count();
+        int sendLockTimeouts() {
+          return (int) registry.get("wsgw.send_lock.timeouts").tag("flow", "push").tag("site", "gw_to_client").counter().count();
         }
     }
 
@@ -84,11 +84,11 @@ public class WsConnectionsTest {
     }
 
     private ConnectionsUnderTest newConnections(
-            Duration pushWaitForRegistration,
-            Duration waitForSendMessageDesaturation,
+            Duration registrationWaitTimeout,
+            Duration sendLockWaitTimeout,
             CircuitBreaker circuitBreaker) {
         var registry = new SimpleMeterRegistry();
-        var timeouts = new Timeouts(pushWaitForRegistration, waitForSendMessageDesaturation);
+        var timeouts = new Timeouts(registrationWaitTimeout, sendLockWaitTimeout);
         return new ConnectionsUnderTest(new WsConnections(timeouts, circuitBreaker, registry), registry);
     }
 
@@ -106,8 +106,8 @@ public class WsConnectionsTest {
         connections.register(testConnectionId, mockedSession);
         connections.push(testConnectionId, testMessage);
 
-        assertThat(underTest.pushSendLogWait().mean(TimeUnit.MICROSECONDS)).isLessThan(TimeUnit.SECONDS.toMicros(1));
-        assertThat(underTest.pushSendLockTimeouts()).isEqualTo(0);
+        assertThat(underTest.sendLockWait().mean(TimeUnit.MICROSECONDS)).isLessThan(TimeUnit.SECONDS.toMicros(1));
+        assertThat(underTest.sendLockTimeouts()).isEqualTo(0);
         verify(mockedBasicRemote, timeout(500).times(1)).sendText(testMessage);
         verify(circuitBreaker, times(0)).increment();
         verifyNoMoreInteractions(mockedBasicRemote);
@@ -325,18 +325,18 @@ public class WsConnectionsTest {
                 blockingStart.await(); // wait until the previous one is ready for blocking.
                 tcLogger.debug("blocker is blocking");
                 underTest.connections().push(testConnectionId, testMessage2);
-                throw new AssertionError("Should have thrown a SendWaitTimedOut");
+                throw new AssertionError("Should have thrown a SendLockWaitTimedOut");
             } catch (Exception e) {
                 tcLogger.debug("Exception from test action: {}", e.getClass().getSimpleName());
-                assertThat(e).isInstanceOf(SendWaitTimedOut.class);
-                var sbe = (SendWaitTimedOut) e;
+                assertThat(e).isInstanceOf(SendLockWaitTimedOut.class);
+                var sbe = (SendLockWaitTimedOut) e;
                 assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
             } finally {
                 blockingEnd.countDown(); // the previous one can unblock now.
             }
-            assertThat(underTest.pushSendLogWait().count()).isEqualTo(2);
-            assertThat(underTest.pushSendLogWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
-            assertThat(underTest.pushSendLockTimeouts()).isEqualTo(1);
+            assertThat(underTest.sendLockWait().count()).isEqualTo(2);
+            assertThat(underTest.sendLockWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
+            assertThat(underTest.sendLockTimeouts()).isEqualTo(1);
             verify(circuitBreaker, times(0)).increment();
         }
     }

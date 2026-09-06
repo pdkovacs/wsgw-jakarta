@@ -2,7 +2,7 @@ package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.*;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
-import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
+import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
@@ -38,9 +38,11 @@ public class MessageRequest extends HttpFilter {
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
             messagePusher.push(connectionId, message);
             log.debug("Message pushed to client");
-        } catch (ConnectionGone sendBackpressure) {
+        } catch (ConnectionGone connectionGone) {
+            // The registration gate gave up on this connection; not send congestion.
             res.sendError(410 /*Gone*/, "Connection gone");
-        } catch (SendWaitTimedOut sendBackpressure) {
+        } catch (SendLockWaitTimedOut sendLockWaitTimedOut) {
+            // Congestion on the gw_to_client hop, answered here on the inbound hop.
             res.sendError(429 /*Too Many Requests*/, "Retry later");
         } catch (Exception e) {
             log.warn("Failed to push message to client", e);

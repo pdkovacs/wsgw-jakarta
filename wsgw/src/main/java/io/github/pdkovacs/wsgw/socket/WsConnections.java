@@ -2,7 +2,7 @@ package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
-import io.github.pdkovacs.wsgw.backpressure.SendWaitTimedOut;
+import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
 import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
@@ -20,20 +20,31 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
     private record Meters(Counter registrationWaits, Counter registrationTimeoutFlagged,
-                          AtomicInteger registrationTimeoutAbandoned, Timer pushSendLockWait,
-                          Counter pushSendLockTimeouts) {
+                          AtomicInteger registrationTimeoutAbandoned, Timer sendLockWait,
+                          Counter sendLockTimeouts) {
         static Meters create(MeterRegistry registry) {
-            Counter registrationWaits = registry.counter("wsgw.registration.waits", "leg", "push");
-            Counter registrationTimeoutFlagged = registry.counter("wsgw.registration.timeout.flagged", "leg", "push");
+            // site=registration: the readiness gate is not a hop. A push is merely the
+            // caller that happens to be waiting at it, so these are not push-flow meters --
+            // they count establishments that did not complete, which is why
+            // connectFailurePreemptThreshold consumes them (docs/backpressure.md 2.2).
+            Counter registrationWaits =
+                    registry.counter("wsgw.registration.waits", "flow", "connect", "site", "registration");
+            Counter registrationTimeoutFlagged =
+                    registry.counter("wsgw.registration.timeout.flagged", "flow", "connect", "site", "registration");
             AtomicInteger registrationTimeoutAbandoned = new AtomicInteger(0);
             Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandoned, AtomicInteger::get)
-                    .tag("leg", "push")
+                    .tag("flow", "connect")
+                    .tag("site", "registration")
                     .register(registry);
-            Timer pushSendLockWait = registry.timer("wsgw.send_lock.wait", "leg", "push");
-            Counter pushSendLockTimeouts = registry.counter("wsgw.send_lock.timeouts", "leg", "push");
+            // site=gw_to_client: the PUSH flow's outbound hop, where the congestion actually is.
+            // The signals it produces are emitted on the inbound hop, in MessageRequest.
+            Timer sendLockWait =
+                    registry.timer("wsgw.send_lock.wait", "flow", "push", "site", "gw_to_client");
+            Counter sendLockTimeouts =
+                    registry.counter("wsgw.send_lock.timeouts", "flow", "push", "site", "gw_to_client");
 
             return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandoned,
-                    pushSendLockWait, pushSendLockTimeouts);
+                    sendLockWait, sendLockTimeouts);
         }
     }
 
@@ -44,11 +55,11 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
 
     public WsConnections(
-            Duration pushToClientWaitTimeout,
-            Duration pushWaitForSendMessageDesaturation,
+            Duration registrationWaitTimeout,
+            Duration sendLockWaitTimeout,
             CircuitBreaker circuitBreaker,
             MeterRegistry registry) {
-        this(new Timeouts(pushToClientWaitTimeout, pushWaitForSendMessageDesaturation), circuitBreaker, registry);
+        this(new Timeouts(registrationWaitTimeout, sendLockWaitTimeout), circuitBreaker, registry);
     }
 
     public WsConnections(Timeouts timeouts, CircuitBreaker circuitBreaker, MeterRegistry registry) {
@@ -79,7 +90,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         }
     }
 
-    public void push(String connectionId, String message) throws SendWaitTimedOut, IOException, InterruptedException {
+    public void push(String connectionId, String message) throws SendLockWaitTimedOut, IOException, InterruptedException {
         var mLogger = logger.with("method", "push").with("connectionId", connectionId);
         var waitedForRegistration = new boolean[]{false};
         var conn = this.conns.compute(connectionId, (_, existing) -> {
@@ -91,7 +102,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
                 // recounted, so the metric measures race incidence, not parked-wait volume.
                 mLogger.debug(
                         "push arrived before register; parking until registration for {} millis",
-                        timeouts.pushWaitForRegistration().toMillis());
+                        timeouts.registrationWaitTimeout().toMillis());
                 waitedForRegistration[0] = true;
                 return createWsConnection(connectionId);
             }
@@ -125,6 +136,6 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     }
 
     private WsConnection createWsConnection(String connectionId) {
-        return new WsConnection(connectionId, new WsConnection.Metrics(meters.pushSendLockWait(), meters.pushSendLockTimeouts()));
+        return new WsConnection(connectionId, new WsConnection.Metrics(meters.sendLockWait(), meters.sendLockTimeouts()));
     }
 }

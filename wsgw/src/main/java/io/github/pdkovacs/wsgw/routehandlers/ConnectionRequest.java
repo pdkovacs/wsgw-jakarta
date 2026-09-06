@@ -29,15 +29,19 @@ public class ConnectionRequest extends HttpFilter {
 
     private record Meters(Counter connectTimeouts, AtomicInteger inFlightConnects) {
         static Meters create(MeterRegistry registry) {
-            // CONNECT
+            // Both meters observe the CONNECT flow's outbound hop (gw_to_app): how long the
+            // app takes to acknowledge, and how many acknowledgements are outstanding. The
+            // signals they drive are emitted on the inbound hop, below in doFilter.
 
             // -- timeouts
-            Counter connectTimeouts = registry.counter("wsgw.connect.timeouts", "leg", "connect");
+            Counter connectTimeouts =
+                    registry.counter("wsgw.connect.timeouts", "flow", "connect", "site", "gw_to_app");
 
             // -- in-flights
             AtomicInteger inFlightConnects = new AtomicInteger(0);
             Gauge.builder("wsgw.connects.inflight", inFlightConnects, AtomicInteger::get)
-                    .tag("leg", "connect")
+                    .tag("flow", "connect")
+                    .tag("site", "gw_to_app")
                     .register(registry);
 
             return new Meters(connectTimeouts, inFlightConnects);

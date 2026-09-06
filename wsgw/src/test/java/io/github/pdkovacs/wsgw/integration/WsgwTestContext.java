@@ -24,11 +24,11 @@ public class WsgwTestContext {
 
     record Meters(MeterRegistry registry) {
         int connectTimeouts() {
-            return (int) registry.get("wsgw.connect.timeouts").tag("leg", "connect").counter().count();
+            return (int) registry.get("wsgw.connect.timeouts").tag("flow", "connect").tag("site", "gw_to_app").counter().count();
         }
 
         int inflightConnects() {
-            return (int) registry.get("wsgw.connects.inflight").tag("leg", "connect")
+            return (int) registry.get("wsgw.connects.inflight").tag("flow", "connect").tag("site", "gw_to_app")
                     .gauge().value();
         }
     }
