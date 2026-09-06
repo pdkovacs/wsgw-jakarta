@@ -48,11 +48,11 @@ public class Configuration {
         this.appwardDispatcherQueueSize = appwardDispatcherQueueSize;
     }
 
-    public Duration getPushToClientWaitTimeout() {
+    public Duration getRegistrationWaitTimeout() {
         return Duration.ofSeconds(10);
     }
 
-    public Duration getPushWaitForSendMessageDesaturation() {
+    public Duration getSendLockWaitTimeout() {
         return Duration.ofSeconds(10);
     }
 

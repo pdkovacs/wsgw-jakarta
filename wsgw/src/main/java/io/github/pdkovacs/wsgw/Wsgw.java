@@ -56,7 +56,7 @@ public class Wsgw {
 
         var appwardRequest = new Request(configuration.getAppBaseUrl());
 
-        // Advertise h2c on the connector so HTTP/2-capable callers (the app->client push leg) can
+        // Advertise h2c on the connector so HTTP/2-capable callers (the PUSH flow's app->gateway hop) can
         // upgrade. This is client-opt-in: HTTP/1.1 callers and the WebSocket (Upgrade: websocket)
         // handshake are unaffected, since they never send the h2c upgrade tokens.
         //-- Create and configure the HTTP/2 protocol object
@@ -81,8 +81,8 @@ public class Wsgw {
                 configuration.getPreemptHoldDown());
 
         WsConnections wsConnections = new WsConnections(
-                this.configuration.getPushToClientWaitTimeout(),
-                this.configuration.getPushWaitForSendMessageDesaturation(),
+                this.configuration.getRegistrationWaitTimeout(),
+                this.configuration.getSendLockWaitTimeout(),
                 circuitBreaker,
                 meterRegistry);
 
