@@ -663,16 +663,19 @@ Handled by `WsConnection.waitForSessionRegistrationToComplete`, reached through
        app's push request is rejected with HTTP 410 *Gone*.
     2. a flagged connection is closed with **1013** (`TRY_AGAIN_LATER`) and
        a short reason phrase.
-- **`wsgw.registration.timeout.flagged` / `.abandoned` over-count** — `[known defect]`.
-  Both meters, and `CircuitBreaker.increment()`, are driven from the
-  `ConnectionGone` catch in `WsConnections.push`. But
-  `waitForSessionRegistrationToComplete` also throws `ConnectionGone` on *every
-  subsequent* push to an already-flagged connection, while `register` decrements
-  `.abandoned` once. So N pushes to one flagged connection produce N increments
-  and one decrement: the gauge drifts upward and the circuit breaker is
-  over-fed. The fix is the same per-connection-vs-per-call distinction already
-  applied to `wsgw.registration.waits` — count on the transition into
-  `registrationTooLate`, not on every throw.
+- **Counted once per flagged connection** — `[implemented]`. Both meters, and
+  `CircuitBreaker.increment()`, are driven from the *transition* into
+  `registrationTooLate` rather than from a `ConnectionGone` catch:
+  `WsConnection` takes an `onRegistrationTimeout` `Runnable` (supplied by
+  `WsConnections.createWsConnection` as `this::onRegistrationTimeout`) and runs
+  it at the one place the flag is set, inside `registrationLock`. This is the
+  same per-connection-vs-per-push distinction `wsgw.registration.waits` already
+  makes. It matters because `waitForSessionRegistrationToComplete` throws
+  `ConnectionGone` on *every subsequent* push to an already-flagged connection
+  while `register` decrements `.abandoned` once — counting the exception gave N
+  increments against one decrement, drifting the gauge upward and over-feeding
+  the circuit breaker. Pinned by
+  `WsConnectionsTest.flaggedConnectionCountedOncePerConnection`.
 
 ### 5.2 PUSH
 
@@ -750,8 +753,9 @@ Handled by the `ConnectionRequest` filter (`registerWithApp`).
   `Retry-After` set to that value while shedding. `jitteredRemaining()` scales
   the true remaining hold-down by a random fraction in `[0.5, 1.0]` so callers
   shed at different points during the same hold-down don't all retry at the
-  instant the gate reopens (which would just re-trip the threshold).
-  Note that the `ConnectionGone` feed inherits the over-count in §5.1.
+  instant the gate reopens (which would just re-trip the threshold). Both feeds
+  are one increment per failed establishment — see §5.1 for why the registration
+  side counts the flagging rather than the `ConnectionGone` throws.
 - Connect-to-app latency metric and `Retry-After` on admission 503 —
   `[planned]`.
 
@@ -791,8 +795,8 @@ touch.
 |---|---|---|---|
 | §2.2 `registrationWaitTimeout` (gate budget) | `Timeouts.registrationWaitTimeout()`; value from `Configuration.getRegistrationWaitTimeout()` | `[partial]` | hardcoded 10s, no settable field; structurally independent of `sendLockTimeout` |
 | §2.2 `wsgw.registration.waits` | `WsConnections.push` (`registrationWaits` counter, `flow=connect`/`site=registration`) | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable |
-| §2.2 `wsgw.registration.timeout.flagged` | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.push` (`registrationTimeoutFlagged` counter) | `[partial]` | over-counts: incremented on every `ConnectionGone` throw, not once per flagged connection (§5.1) |
-| §2.2 `wsgw.registration.timeout.abandoned` | `WsConnections` (`Gauge` over `AtomicInteger`); incremented in `push` (`ConnectionGone` catch), decremented in `register` (tombstone path) | `[partial]` | same over-count; N increments to 1 decrement (§5.1) |
+| §2.2 `wsgw.registration.timeout.flagged` | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`, which runs `onRegistrationTimeout`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.onRegistrationTimeout` (`registrationTimeoutFlagged` counter) | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable |
+| §2.2 `wsgw.registration.timeout.abandoned` | `WsConnections` (`Gauge` over `AtomicInteger`); incremented in `onRegistrationTimeout` (the flagging), decremented in `register` (tombstone path) | `[partial]` | not scrapeable; one increment to one decrement, so the gauge returns to zero (§5.1) |
 | §2.2 close code 1013 on termination | `WsConnection.registerSession` | `[implemented]` | |
 | §2.3.1 signal 410 (connection flagged) | `MessageRequest.doFilter` (`ConnectionGone` → 410) | `[implemented]` | |
 | §2.3.1 signal 429 (send-lock timeout) | `MessageRequest.doFilter` (`SendLockWaitTimedOut` → 429) | `[partial]` | no `Retry-After` |
@@ -802,7 +806,7 @@ touch.
 | §2.3.2 metric `wsgw.send_lock.timeouts` | `WsConnection.sendMessage` → `wsgw.send_lock.timeouts` (`Counter`, same tags) | `[partial]` | not scrapeable; the same `tryLock` failure also increments the per-connection breaker |
 | §2.3.2 `sendLockTimeoutCountWindow` / `sendLockTimeoutsPreemptThreshold` / `sendLockTimeoutPreemptHoldDown` | per-connection `CircuitBreaker` from the `Supplier<CircuitBreaker>` built in `Wsgw.getWsConnections`, instantiated in `WsConnections.createWsConnection`; incremented and checked in `WsConnection` | `[implemented]` | breaker state is per connection and dies with it, so it is not exported anywhere (§5.2) |
 | §2.4.1 `maxInFlightConnects` + 503 signal | `ConnectionRequest.doFilter` (`inFlights > maxInflightConnections` → 503) | `[partial]` | no `Retry-After` |
-| §2.4.1 `connectFailureCountWindow` / `connectFailurePreemptThreshold` / `connectPreemptHoldDown` | `CircuitBreaker` (windowed count as decision state, separate from the export meters); constructed in `Wsgw` from `Configuration.getConnectFailureCountWindow()` / `getConnectFailurePreemptThreshold()` / `getConnectPreemptHoldDown()`; checked and incremented from `ConnectionRequest.doFilter` and `WsConnections.push` | `[implemented]` | admission bound's own `Retry-After` (row above) is still separate and still missing; the `WsConnections.push` feed inherits §5.1's over-count |
+| §2.4.1 `connectFailureCountWindow` / `connectFailurePreemptThreshold` / `connectPreemptHoldDown` | `CircuitBreaker` (windowed count as decision state, separate from the export meters); constructed in `Wsgw` from `Configuration.getConnectFailureCountWindow()` / `getConnectFailurePreemptThreshold()` / `getConnectPreemptHoldDown()`; checked and incremented from `ConnectionRequest.doFilter` and `WsConnections.onRegistrationTimeout` | `[implemented]` | admission bound's own `Retry-After` (row above) is still separate and still missing |
 | §2.4.1 `Retry-After` = jittered remainder | `CircuitBreaker.jitteredRemaining()`; read by `ConnectionRequest.doFilter` when answering 503 | `[implemented]` | random fraction in `[0.5, 1.0]` of `CircuitBreaker.remaining()`, via an injectable `DoubleSupplier` (mirrors the `Clock` injection already used for the window/hold-down math) |
 | §2.4.2 `connectWaitTimeout` + 504 signal | `ConnectionRequest`: `connectWaitTimeout` from `Configuration.getConnectWaitTimeout()` (default 10s); passed as request timeout to `Request.send`; `HttpTimeoutException` → 504 | `[implemented]` | |
 | §2.4.2 metric `wsgw.connects.inflight` | `ConnectionRequest` → `Gauge` over `AtomicInteger` (`flow=connect`/`site=gw_to_app`) | `[partial]` | not scrapeable |
