@@ -62,8 +62,8 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
             try {
                 tcLoggerr.debug("Sending request...");
                 var response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+                tcLoggerr.debug("Request sent received response: {}", response);
                 Assertions.assertThat(response.version()).isEqualTo(HttpClient.Version.HTTP_2);
-                tcLoggerr.debug("Request sent");
                 return messageFromApp;
             } catch (IOException e) {
                 if (attempt >= PUSH_ATTEMPTS) {

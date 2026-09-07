@@ -82,7 +82,7 @@ public class ConnectionRequest extends HttpFilter {
         var holdDown = circuitBreaker.jitteredRemaining();
         if (holdDown != null) {
             res.addHeader("Retry-After", String.valueOf(holdDown.getSeconds()));
-            res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "failed to reach application");
+            res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Too many connect requests");
             return;
         }
 

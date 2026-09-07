@@ -1,6 +1,8 @@
 package io.github.pdkovacs.wsgw.socket;
 
+import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
+import io.github.pdkovacs.wsgw.backpressure.RetryAfter;
 import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
@@ -22,6 +24,7 @@ class WsConnection {
     record Metrics(Timer sendLockWait, Counter sendLockTimeouts) {}
 
     private final Metrics metrics;
+    private final CircuitBreaker sendLockTimeoutBreaker;
     private final String connectionId;
     private final Object registrationLock = new Object();
     private final ReentrantLock sendLock;
@@ -29,10 +32,11 @@ class WsConnection {
     private volatile Session registeredSession;
     private boolean registrationTooLate = false;
 
-    public WsConnection(String connectionId, Metrics metrics) {
+    public WsConnection(String connectionId, Metrics metrics, CircuitBreaker sendLockTimeoutBreaker) {
         sendLock = new ReentrantLock();
         this.connectionId = connectionId;
         this.metrics = metrics;
+        this.sendLockTimeoutBreaker = sendLockTimeoutBreaker;
     }
 
     public void close() throws IOException {
@@ -68,6 +72,11 @@ class WsConnection {
     }
 
     public void sendMessage(String message, Timeouts timeouts) throws IOException, InterruptedException, ExecutionException {
+        var remaining = sendLockTimeoutBreaker.jitteredRemaining();
+        logger.debug("Sending message to connection: {} {}", sendLockTimeoutBreaker, remaining);
+        if (remaining != null) {
+            throw new RetryAfter(connectionId, remaining.toSeconds());
+        }
         waitForSessionRegistrationToComplete(timeouts.registrationWaitTimeout());
         sendMessageSessionAssumed(message, timeouts.sendLockWaitTimeout());
     }
@@ -115,6 +124,7 @@ class WsConnection {
             if (!sendLock.tryLock(sendLockWaitTimeout.toMillis(), MILLISECONDS)) {
                 mLogger.debug("failed to acquire sendLock", sendLockWaitTimeout);
                 metrics.sendLockTimeouts.increment();
+                sendLockTimeoutBreaker.increment();
                 throw new SendLockWaitTimedOut(connectionId);
             }
         } finally {

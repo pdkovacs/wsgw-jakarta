@@ -2,6 +2,7 @@ package io.github.pdkovacs.wsgw.routehandlers;
 
 import io.github.pdkovacs.wsgw.*;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
+import io.github.pdkovacs.wsgw.backpressure.RetryAfter;
 import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -44,6 +45,9 @@ public class MessageRequest extends HttpFilter {
         } catch (SendLockWaitTimedOut sendLockWaitTimedOut) {
             // Congestion on the gw_to_client hop, answered here on the inbound hop.
             res.sendError(429 /*Too Many Requests*/, "Retry later");
+        } catch (RetryAfter retryAfter) {
+            res.addHeader("Retry-After", String.valueOf(retryAfter.getAfterSecs()));
+            res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Client overloaded");
         } catch (Exception e) {
             log.warn("Failed to push message to client", e);
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");

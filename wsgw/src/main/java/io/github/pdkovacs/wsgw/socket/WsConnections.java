@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 public class WsConnections implements SessionRegistrar, MessagePusher, SessionCloser {
 
@@ -49,23 +50,28 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     }
 
     private final Timeouts timeouts;
-    private final CircuitBreaker circuitBreaker;
+    private final CircuitBreaker connectCircuitBreaker;
     private final Meters meters;
+    private final Supplier<CircuitBreaker> sendLockTimeoutBreakerSupplier;
 
     private final ConcurrentMap<String, WsConnection> conns = new ConcurrentHashMap<>();
 
     public WsConnections(
             Duration registrationWaitTimeout,
             Duration sendLockWaitTimeout,
-            CircuitBreaker circuitBreaker,
-            MeterRegistry registry) {
-        this(new Timeouts(registrationWaitTimeout, sendLockWaitTimeout), circuitBreaker, registry);
+            CircuitBreaker connectCircuitBreaker,
+            MeterRegistry registry,
+            Supplier<CircuitBreaker> sendLockTimeoutBreakerSupplier) {
+        this(new Timeouts(registrationWaitTimeout, sendLockWaitTimeout),
+                connectCircuitBreaker, registry, sendLockTimeoutBreakerSupplier);
     }
 
-    public WsConnections(Timeouts timeouts, CircuitBreaker circuitBreaker, MeterRegistry registry) {
+    public WsConnections(Timeouts timeouts, CircuitBreaker connectCircuitBreaker, MeterRegistry registry,
+                         Supplier<CircuitBreaker> sendLockTimeoutBreakerSupplier) {
         this.timeouts = timeouts;
-        this.circuitBreaker = circuitBreaker;
+        this.connectCircuitBreaker = connectCircuitBreaker;
         this.meters = Meters.create(registry);
+        this.sendLockTimeoutBreakerSupplier = sendLockTimeoutBreakerSupplier;
     }
 
     public boolean register(String connectionId, Session session) {
@@ -120,7 +126,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         } catch (ConnectionGone connectionGone) {
             meters.registrationTimeoutFlagged().increment();
             meters.registrationTimeoutAbandoned().incrementAndGet();
-            circuitBreaker.increment();
+            connectCircuitBreaker.increment();
             throw connectionGone;
         }
     }
@@ -136,6 +142,10 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     }
 
     private WsConnection createWsConnection(String connectionId) {
-        return new WsConnection(connectionId, new WsConnection.Metrics(meters.sendLockWait(), meters.sendLockTimeouts()));
+        return new WsConnection(
+                connectionId,
+                new WsConnection.Metrics(meters.sendLockWait(), meters.sendLockTimeouts()),
+                sendLockTimeoutBreakerSupplier.get()
+        );
     }
 }

@@ -12,8 +12,6 @@ public class Configuration {
 
     private String appBaseUrl;
 
-    private int appwardDispatcherQueueSize = 20;
-
     private Duration connectWaitTimeout = Duration.ofSeconds(10);
 
     private int maxInFlightConnects = 10000;
@@ -22,7 +20,17 @@ public class Configuration {
 
     private int connectFailurePreemptThreshold = 30;
 
-    private Duration preemptHoldDown =  Duration.ofSeconds(30);
+    private Duration connectPreemptHoldDown =  Duration.ofSeconds(30);
+
+    private Duration sendLockTimeout = Duration.ofSeconds(10);
+
+    private Duration sendLockTimeoutCountWindow = Duration.ofSeconds(30);
+
+    private int sendLockTimeoutsPreemptThreshold = 3;
+
+    private Duration sendLockTimeoutPreemptHoldDown =  Duration.ofSeconds(30);
+
+    private int appwardDispatcherQueueSize = 20;
 
     public String getAppBaseUrl() {
         return appBaseUrl;
@@ -52,8 +60,12 @@ public class Configuration {
         return Duration.ofSeconds(10);
     }
 
-    public Duration getSendLockWaitTimeout() {
-        return Duration.ofSeconds(10);
+    public Duration getSendLockTimeout() {
+        return sendLockTimeout;
+    }
+
+    public void setSendLockTimeout(Duration sendLockTimeout) {
+        this.sendLockTimeout = sendLockTimeout;
     }
 
     public Duration getConnectWaitTimeout() {
@@ -88,12 +100,36 @@ public class Configuration {
         this.connectFailurePreemptThreshold = connectFailurePreemptThreshold;
     }
 
-    public Duration getPreemptHoldDown() {
-        return preemptHoldDown;
+    public Duration getConnectPreemptHoldDown() {
+        return connectPreemptHoldDown;
     }
 
-    public void setPreemptHoldDown(Duration preemptHoldDown) {
-        this.preemptHoldDown = preemptHoldDown;
+    public void setConnectPreemptHoldDown(Duration connectPreemptHoldDown) {
+        this.connectPreemptHoldDown = connectPreemptHoldDown;
+    }
+
+    public Duration getSendLockTimeoutCountWindow() {
+        return sendLockTimeoutCountWindow;
+    }
+
+    public void setSendLockTimeoutCountWindow(Duration sendLockTimeoutCountWindow) {
+        this.sendLockTimeoutCountWindow = sendLockTimeoutCountWindow;
+    }
+
+    public int getSendLockTimeoutsPreemptThreshold() {
+        return sendLockTimeoutsPreemptThreshold;
+    }
+
+    public void setSendLockTimeoutsPreemptThreshold(int sendLockTimeoutsPreemptThreshold) {
+        this.sendLockTimeoutsPreemptThreshold = sendLockTimeoutsPreemptThreshold;
+    }
+
+    public Duration getSendLockTimeoutPreemptHoldDown() {
+        return sendLockTimeoutPreemptHoldDown;
+    }
+
+    public void setSendLockTimeoutPreemptHoldDown(Duration sendLockTimeoutPreemptHoldDown) {
+        this.sendLockTimeoutPreemptHoldDown = sendLockTimeoutPreemptHoldDown;
     }
 
     public static Configuration fromEnv() {
