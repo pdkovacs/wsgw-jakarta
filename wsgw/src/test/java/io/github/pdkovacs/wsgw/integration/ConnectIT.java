@@ -21,9 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
 @Timeout(5)
-public class ConnectionIT {
+public class ConnectIT {
 
-    private static final CtxLogger logger = CtxLogger.of(ConnectionIT.class);
+    private static final CtxLogger logger = CtxLogger.of(ConnectIT.class);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 
@@ -118,7 +118,7 @@ public class ConnectionIT {
         var unblockAppConnect = new CountDownLatch(1);
         try {
             wsgwTestContext.setUp(tempDir);
-            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectionIT.createWaitImpl(appConnectImplBlocking, unblockAppConnect));
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectIT.createWaitImpl(appConnectImplBlocking, unblockAppConnect));
 
             // ACT
             for (var i = 0; i < 2; i++) {
@@ -147,7 +147,7 @@ public class ConnectionIT {
         var unblockAppConnectImpl = new CountDownLatch(1);
         try {
             wsgwTestContext.setUp(tempDir, config);
-            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectionIT.createWaitImpl(appConnectImplBlocking, unblockAppConnectImpl));
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectIT.createWaitImpl(appConnectImplBlocking, unblockAppConnectImpl));
 
             // ACT
             connectChecked(connectionEstablished, false);
@@ -202,12 +202,12 @@ public class ConnectionIT {
         // Retry-After is jittered to a random fraction in [CircuitBreaker.MIN_JITTER_FRACTION, 1.0]
         // of the true remaining hold-down (CircuitBreaker.jitteredRemaining()), so assert a range
         // rather than the exact remaining, with the same -1s slack for the seconds truncation as before.
-        assertRetryAfterWithinJitteredRange(response, config.getPreemptHoldDown().toSeconds() - 1);
+        assertRetryAfterWithinJitteredRange(response, config.getConnectPreemptHoldDown().toSeconds() - 1);
 
         var moreHoldDownSec = 3;
         Thread.sleep(Duration.ofSeconds(moreHoldDownSec));
         response = rawConnect();
-        assertRetryAfterWithinJitteredRange(response, config.getPreemptHoldDown().toSeconds() - 1 - moreHoldDownSec);
+        assertRetryAfterWithinJitteredRange(response, config.getConnectPreemptHoldDown().toSeconds() - 1 - moreHoldDownSec);
     }
 
     private void assertRetryAfterWithinJitteredRange(HttpResponse<String> response, long exactRemainingSecs) {

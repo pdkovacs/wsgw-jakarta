@@ -17,9 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.fail;
 
 @Timeout(5)
-public class DisconnectionIT {
+public class DisconnectIT {
 
-    private static final CtxLogger logger = CtxLogger.of(DisconnectionIT.class);
+    private static final CtxLogger logger = CtxLogger.of(DisconnectIT.class);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 

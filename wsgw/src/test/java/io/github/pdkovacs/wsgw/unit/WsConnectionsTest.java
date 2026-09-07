@@ -1,7 +1,9 @@
 package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.CircuitBreaker;
+import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
+import io.github.pdkovacs.wsgw.backpressure.RetryAfter;
 import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.socket.Timeouts;
 import io.github.pdkovacs.wsgw.socket.WsConnections;
@@ -17,17 +19,21 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.function.Supplier;
 
 @Timeout(5)
 public class WsConnectionsTest {
@@ -76,20 +82,23 @@ public class WsConnectionsTest {
     }
 
     private ConnectionsUnderTest newConnections() {
-        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON, createCircuitBreaker());
+        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON,
+                createCircuitBreaker(), WsConnectionsTest::createCircuitBreaker);
     }
 
-    private ConnectionsUnderTest newConnections(CircuitBreaker circuitBreaker) {
-        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON, circuitBreaker);
+    private ConnectionsUnderTest newConnections(CircuitBreaker connectCircuitBreaker) {
+        return newConnections(WAIT_FOR_REGISTRATION, WAIT_FOR_SENDMESSAGE_DESATURAITON,
+                connectCircuitBreaker, WsConnectionsTest::createCircuitBreaker);
     }
 
     private ConnectionsUnderTest newConnections(
             Duration registrationWaitTimeout,
             Duration sendLockWaitTimeout,
-            CircuitBreaker circuitBreaker) {
+            CircuitBreaker circuitBreaker,
+            Supplier<CircuitBreaker> sendLockTimeoutBreakerSupplier) {
         var registry = new SimpleMeterRegistry();
         var timeouts = new Timeouts(registrationWaitTimeout, sendLockWaitTimeout);
-        return new ConnectionsUnderTest(new WsConnections(timeouts, circuitBreaker, registry), registry);
+        return new ConnectionsUnderTest(new WsConnections(timeouts, circuitBreaker, registry, sendLockTimeoutBreakerSupplier), registry);
     }
 
     @Test
@@ -260,7 +269,7 @@ public class WsConnectionsTest {
         var mockedBasicRemote = mockedSession.getBasicRemote();
         reset(mockedSession); // resets the call getBasicRemote();
         var circuitBreaker = mock(CircuitBreaker.class);
-        var underTest = newConnections(Duration.ZERO, WAIT_FOR_SENDMESSAGE_DESATURAITON, circuitBreaker);
+        var underTest = newConnections(Duration.ZERO, WAIT_FOR_SENDMESSAGE_DESATURAITON, circuitBreaker, WsConnectionsTest::createCircuitBreaker);
 
         try {
             underTest.connections().push(testConnectionId, testMessage);
@@ -287,6 +296,46 @@ public class WsConnectionsTest {
         verify(circuitBreaker, times(1)).increment();
     }
 
+    // Blocks the send path on `connectionId` by pushing `blockingMessage`, whose mocked sendText call
+    // parks on a latch instead of returning. Returns once the block has actually taken effect, so any
+    // push issued after this call contends for the (already held) sendLock. Closing the result releases
+    // the block and waits for the blocking push to finish.
+    private record BlockedSendPath(ExecutorService executor, CountDownLatch blockingEnd) implements AutoCloseable {
+        @Override
+        public void close() {
+            blockingEnd.countDown(); // the blocker can unblock now.
+            executor.close(); // await the blocking push's completion.
+        }
+    }
+
+    private BlockedSendPath blockSendPath(
+            ConnectionsUnderTest underTest,
+            String connectionId,
+            RemoteEndpoint.Basic mockedBasicRemote,
+            String blockingMessage,
+            CtxLogger tcLogger) throws IOException, InterruptedException {
+        var blockingStart = new CountDownLatch(1);
+        var blockingEnd = new CountDownLatch(1);
+        doAnswer((Answer<Void>) invocation -> {
+            var bLogger = tcLogger.with("thread", Thread.currentThread().threadId());
+            blockingStart.countDown(); // safe for the next one to start.
+            bLogger.debug("blocker to block...");
+            blockingEnd.await(); // wait until released
+            return null;
+        }).when(mockedBasicRemote).sendText(blockingMessage);
+
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        executor.submit(() -> {
+            underTest.connections().push(connectionId, blockingMessage);
+            return null;
+        });
+
+        tcLogger.debug("awaiting blocker to block");
+        blockingStart.await(); // wait until the blocker is ready for blocking.
+        tcLogger.debug("blocker is blocking");
+        return new BlockedSendPath(executor, blockingEnd);
+    }
+
     @Test
     @DisplayName("send-path busy → backpressure failure")
     void pushFailsFastWhenSendPathSaturated() throws IOException, InterruptedException {
@@ -301,47 +350,66 @@ public class WsConnectionsTest {
         var underTest = newConnections(
                 Duration.ZERO,
                 Duration.ofSeconds(sendPathDesaturationTimeoutSecs),
-                circuitBreaker);
+                circuitBreaker, WsConnectionsTest::createCircuitBreaker);
 
-        var blockingStart = new CountDownLatch(1);
-        var blockingEnd = new CountDownLatch(1);
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            try {
-                underTest.connections().register(testConnectionId, mockedSession);
-                doAnswer((Answer<Void>) invocation -> {
-                    var logger = tcLogger.with("thread", Thread.currentThread().threadId());
-                    blockingStart.countDown(); // safe for the next one to start.
-                    logger.debug("blocker to sleep...");
-                    logger.debug("blocker to block...");
-                    blockingEnd.await(); // wait until the other finishes
-                    return null;
-                }).when(mockedBasicRemote).sendText(testMessage1);
-                executor.submit(() -> {
-                    underTest.connections().push(testConnectionId, testMessage1);
-                    return null;
-                });
+        underTest.connections().register(testConnectionId, mockedSession);
+        try (var blocked = blockSendPath(underTest, testConnectionId, mockedBasicRemote, testMessage1, tcLogger)) {
+            var e = Assertions.catchThrowable(() -> underTest.connections().push(testConnectionId, testMessage2));
+            tcLogger.debug("Exception from test action: {}", e == null ? null : e.getClass().getSimpleName());
+            assertThat(e).isInstanceOf(SendLockWaitTimedOut.class);
+            assertThat(((SendLockWaitTimedOut) e).getConnectionId()).isEqualTo(testConnectionId);
+        }
+        assertThat(underTest.sendLockWait().count()).isEqualTo(2);
+        assertThat(underTest.sendLockWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
+        assertThat(underTest.sendLockTimeouts()).isEqualTo(1);
+        verify(circuitBreaker, times(0)).increment();
+    }
 
-                tcLogger.debug("awaiting blocker to block");
-                blockingStart.await(); // wait until the previous one is ready for blocking.
-                tcLogger.debug("blocker is blocking");
-                underTest.connections().push(testConnectionId, testMessage2);
-                throw new AssertionError("Should have thrown a SendLockWaitTimedOut");
-            } catch (Exception e) {
-                tcLogger.debug("Exception from test action: {}", e.getClass().getSimpleName());
+    @Test
+    @DisplayName("excess send-lock timeouts trip the breaker → later push preempted with RetryAfter")
+    void pushPreemptedOnExcessSendLockTimeouts() throws Exception {
+        var tcLogger = logger.with("method", "pushPreemptedOnExcessSendLockTimeouts");
+        var testConnectionId = "some connection-id";
+        var blockingMessage = "some message";
+        var mockedSession = newMockedSession();
+        var mockedBasicRemote = mockedSession.getBasicRemote();
+        var sendLockWaitTimeout = Duration.ofMillis(200);
+        var threshold = 1;
+        var holdDownPeriod = Duration.ofSeconds(10);
+        Supplier<CircuitBreaker> sendLockTimeoutBreakerSupplier =
+                () -> new CircuitBreaker(Duration.ofMinutes(1), threshold, holdDownPeriod);
+        var underTest = newConnections(
+                Duration.ZERO, sendLockWaitTimeout, createCircuitBreaker(), sendLockTimeoutBreakerSupplier);
+
+        underTest.connections().register(testConnectionId, mockedSession);
+        try (var blocked = blockSendPath(underTest, testConnectionId, mockedBasicRemote, blockingMessage, tcLogger)) {
+            // Drive the breaker past its threshold: each of these contends for the still-held
+            // sendLock and times out, incrementing the breaker.
+            for (int i = 0; i <= threshold; i++) {
+                var message = "timing out " + i;
+                var e = Assertions.catchThrowable(() -> underTest.connections().push(testConnectionId, message));
                 assertThat(e).isInstanceOf(SendLockWaitTimedOut.class);
-                var sbe = (SendLockWaitTimedOut) e;
-                assertThat(sbe.getConnectionId()).isEqualTo(testConnectionId);
-            } finally {
-                blockingEnd.countDown(); // the previous one can unblock now.
             }
-            assertThat(underTest.sendLockWait().count()).isEqualTo(2);
-            assertThat(underTest.sendLockWait().max(TimeUnit.MICROSECONDS)).isGreaterThan(TimeUnit.SECONDS.toMicros(sendPathDesaturationTimeoutSecs));
-            assertThat(underTest.sendLockTimeouts()).isEqualTo(1);
-            verify(circuitBreaker, times(0)).increment();
+            assertThat(underTest.sendLockTimeouts()).isEqualTo(threshold + 1);
+
+            // The breaker is now shedding: this push must be preempted before it ever contends
+            // for the sendLock, so it fails with RetryAfter instead of another timeout.
+            var preempted = Assertions.catchThrowable(() -> underTest.connections().push(testConnectionId, "one too many"));
+            assertThat(preempted).isInstanceOf(RetryAfter.class);
+            var retryAfter = (RetryAfter) preempted;
+            assertThat(retryAfter.getConnectionId()).isEqualTo(testConnectionId);
+            assertThat(retryAfter.getAfterSecs()).isPositive();
+
+            assertThat(underTest.sendLockTimeouts())
+                    .as("the preempted push never touched the sendLock")
+                    .isEqualTo(threshold + 1);
         }
     }
 
     private static CircuitBreaker createCircuitBreaker() {
-        return mock(CircuitBreaker.class);
+        CircuitBreaker breakerMock = mock(CircuitBreaker.class);
+        when(breakerMock.remaining()).thenReturn(null);
+        when(breakerMock.jitteredRemaining()).thenReturn(null);
+        return breakerMock;
     }
 }

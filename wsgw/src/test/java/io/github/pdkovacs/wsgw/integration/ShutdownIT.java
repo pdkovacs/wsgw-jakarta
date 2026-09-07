@@ -48,7 +48,7 @@ public class ShutdownIT {
             }
 
             // ARRANGE
-            wsgwTestContext.fakeAppConfig.setDisconnectProcessingImpl(ConnectionIT.createWaitImpl(appDisconnectBlocking, unblockAppDisconnect));
+            wsgwTestContext.fakeAppConfig.setDisconnectProcessingImpl(ConnectIT.createWaitImpl(appDisconnectBlocking, unblockAppDisconnect));
         } finally {
             // Have the app Wait for a sizeable period of time in the disconnect implementation
             // so there is some real queue for the dispatchers to drain:

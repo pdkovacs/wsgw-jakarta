@@ -22,6 +22,7 @@ import org.apache.tomcat.websocket.server.WsSci;
 
 import java.time.Duration;
 import java.util.Set;
+import java.util.function.Supplier;
 
 public class Wsgw {
 
@@ -78,13 +79,8 @@ public class Wsgw {
         var circuitBreaker = new CircuitBreaker(
                 configuration.getConnectFailureCountWindow(),
                 configuration.getConnectFailurePreemptThreshold(),
-                configuration.getPreemptHoldDown());
-
-        WsConnections wsConnections = new WsConnections(
-                this.configuration.getRegistrationWaitTimeout(),
-                this.configuration.getSendLockWaitTimeout(),
-                circuitBreaker,
-                meterRegistry);
+                configuration.getConnectPreemptHoldDown());
+        WsConnections wsConnections = getWsConnections(circuitBreaker);
 
         appwardRelays = new Relays(appwardRequest, configuration.getAppwardDispatcherQueueSize());
 
@@ -105,6 +101,19 @@ public class Wsgw {
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();
+    }
+
+    private WsConnections getWsConnections(CircuitBreaker circuitBreaker) {
+        Supplier<CircuitBreaker> sendLockTimeoutBreakerSupplier = () -> new CircuitBreaker(
+                configuration.getSendLockTimeoutCountWindow(),
+                configuration.getSendLockTimeoutsPreemptThreshold(),
+                configuration.getSendLockTimeoutPreemptHoldDown());
+        return new WsConnections(
+                this.configuration.getRegistrationWaitTimeout(),
+                this.configuration.getSendLockTimeout(),
+                circuitBreaker,
+                meterRegistry,
+                sendLockTimeoutBreakerSupplier);
     }
 
     private void addFilters(
