@@ -1,7 +1,6 @@
 package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.CircuitBreaker;
-import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
@@ -123,11 +122,6 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             }
         } catch (ExecutionException e) {
             throw new RuntimeException(e);
-        } catch (ConnectionGone connectionGone) {
-            meters.registrationTimeoutFlagged().increment();
-            meters.registrationTimeoutAbandoned().incrementAndGet();
-            connectCircuitBreaker.increment();
-            throw connectionGone;
         }
     }
 
@@ -145,7 +139,18 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         return new WsConnection(
                 connectionId,
                 new WsConnection.Metrics(meters.sendLockWait(), meters.sendLockTimeouts()),
-                sendLockTimeoutBreakerSupplier.get()
+                sendLockTimeoutBreakerSupplier.get(),
+                this::onRegistrationTimeout
         );
+    }
+
+    // Reached once per connection, from the flagging itself rather than from a ConnectionGone
+    // catch: pushes arriving at an already-flagged connection are refused with ConnectionGone
+    // too, so catching those counted one flagged connection N times over -- inflating the gauge
+    // and over-feeding the breaker against register()'s single decrement.
+    private void onRegistrationTimeout() {
+        meters.registrationTimeoutFlagged().increment();
+        meters.registrationTimeoutAbandoned().incrementAndGet();
+        connectCircuitBreaker.increment();
     }
 }

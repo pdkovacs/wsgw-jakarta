@@ -25,6 +25,10 @@ class WsConnection {
 
     private final Metrics metrics;
     private final CircuitBreaker sendLockTimeoutBreaker;
+    // Called exactly once, by the thread that flags this connection for termination. Every push
+    // that arrives afterwards is refused from the already-set flag and reports nothing, so what
+    // this reports is the flagging of one connection, not the volume of pushes that hit it.
+    private final Runnable onRegistrationTimeout;
     private final String connectionId;
     private final Object registrationLock = new Object();
     private final ReentrantLock sendLock;
@@ -32,11 +36,16 @@ class WsConnection {
     private volatile Session registeredSession;
     private boolean registrationTooLate = false;
 
-    public WsConnection(String connectionId, Metrics metrics, CircuitBreaker sendLockTimeoutBreaker) {
+    public WsConnection(
+            String connectionId,
+            Metrics metrics,
+            CircuitBreaker sendLockTimeoutBreaker,
+            Runnable onRegistrationTimeout) {
         sendLock = new ReentrantLock();
         this.connectionId = connectionId;
         this.metrics = metrics;
         this.sendLockTimeoutBreaker = sendLockTimeoutBreaker;
+        this.onRegistrationTimeout = onRegistrationTimeout;
     }
 
     public void close() throws IOException {
@@ -106,6 +115,9 @@ class WsConnection {
             if (registeredSession == null) {
                 mLogger.warn("No session");
                 registrationTooLate = true;
+                // Under registrationLock, and registrationTooLate is set nowhere else, so this
+                // runs once per flagged connection -- see the field's comment.
+                onRegistrationTimeout.run();
                 throw new ConnectionGone(connectionId);
             }
             mLogger.debug("got session");

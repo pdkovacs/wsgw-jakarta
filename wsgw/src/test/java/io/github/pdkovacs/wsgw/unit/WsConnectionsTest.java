@@ -296,6 +296,40 @@ public class WsConnectionsTest {
         verify(circuitBreaker, times(1)).increment();
     }
 
+    @Test
+    @DisplayName("further pushes to an already-flagged connection are not re-counted")
+    void flaggedConnectionCountedOncePerConnection() throws IOException {
+        var testConnectionId = "some connection-id";
+        var mockedSession = newMockedSession();
+        reset(mockedSession); // resets the call getBasicRemote();
+        var circuitBreaker = mock(CircuitBreaker.class);
+        var underTest = newConnections(
+                Duration.ZERO, WAIT_FOR_SENDMESSAGE_DESATURAITON, circuitBreaker, WsConnectionsTest::createCircuitBreaker);
+
+        // The first push flags the connection; the rest are refused from the flag already set.
+        // All of them see ConnectionGone, so counting the exception would count this one
+        // connection three times over.
+        var pushCount = 3;
+        for (var i = 0; i < pushCount; i++) {
+            var message = "some message " + i;
+            var e = Assertions.catchThrowable(() -> underTest.connections().push(testConnectionId, message));
+            assertThat(e).isInstanceOf(ConnectionGone.class);
+            assertThat(((ConnectionGone) e).getConnectionId()).isEqualTo(testConnectionId);
+        }
+
+        assertThat(underTest.registrationTimeoutFlagged())
+                .as("one connection flagged, however many pushes hit it")
+                .isEqualTo(1);
+        assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(1);
+        verify(circuitBreaker, times(1)).increment();
+
+        // ...and the late registration's single decrement still balances the gauge.
+        underTest.connections().register(testConnectionId, mockedSession);
+        assertThat(underTest.registrationTimeoutAbondoned())
+                .as("the gauge returns to zero, so it did not drift upward")
+                .isEqualTo(0);
+    }
+
     // Blocks the send path on `connectionId` by pushing `blockingMessage`, whose mocked sendText call
     // parks on a latch instead of returning. Returns once the block has actually taken effect, so any
     // push issued after this call contends for the (already held) sendLock. Closing the result releases
