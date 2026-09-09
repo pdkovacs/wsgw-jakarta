@@ -126,7 +126,10 @@ public class Wsgw {
                         appwardRelays.appwardRequest(),
                         this.connectionIdProvider,
                         configuration.getMaxInFlightConnects(),
-                        connectWaitTimeout, circuitBreaker, meterRegistry),
+                        connectWaitTimeout,
+                        circuitBreaker,
+                        configuration.getDefaultAdmissionHoldDown(),
+                        meterRegistry),
                 WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));

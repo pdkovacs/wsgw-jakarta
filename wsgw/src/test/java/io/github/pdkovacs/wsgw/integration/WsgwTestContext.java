@@ -7,6 +7,7 @@ import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.net.http.HttpClient;
@@ -15,6 +16,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 
 public class WsgwTestContext {
 
@@ -23,13 +25,17 @@ public class WsgwTestContext {
     public static final Duration DEFAULT_PUSH_REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
     record Meters(MeterRegistry registry) {
+        int inflightConnects() {
+            return (int) registry.get("wsgw.connect.inflight").tag("flow", "connect").tag("site", "gw_to_app")
+                    .gauge().value();
+        }
+
         int connectTimeouts() {
             return (int) registry.get("wsgw.connect.timeouts").tag("flow", "connect").tag("site", "gw_to_app").counter().count();
         }
 
-        int inflightConnects() {
-            return (int) registry.get("wsgw.connect.inflight").tag("flow", "connect").tag("site", "gw_to_app")
-                    .gauge().value();
+        Timer connectLatency() {
+            return registry.get("wsgw.connect.latency").tag("flow", "connect").tag("site", "gw_to_app").timer();
         }
     }
 
@@ -83,6 +89,14 @@ public class WsgwTestContext {
 
     public String getWsgwServerName() {
         return wsgwServerName;
+    }
+
+    WebsocketTestClient connectClient(CountDownLatch connectionEstablished) throws Exception {
+        return wsTestClients.connect(
+                wsgwServerName,
+                fakeAppConfig.getApiKey(),
+                connectionEstablished
+        );
     }
 
     public BlockingQueue<Message> getAppInbox(String connectionId) {

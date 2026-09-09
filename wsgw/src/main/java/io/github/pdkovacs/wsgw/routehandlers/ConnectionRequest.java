@@ -9,6 +9,7 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
@@ -21,13 +22,24 @@ import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectionRequest extends HttpFilter {
 
+    public static final double MIN_ADMISSION_HOLD_DOWN_JITTER_FRACTION = 0.5;
+
+    /**
+     * The connect-latency quantile the admission 503's {@code Retry-After} is derived from.
+     * The timer must be built to track it ({@code publishPercentiles}) for it to be readable
+     * back, so the two uses are bound to this one constant.
+     */
+    private static final double ADMISSION_QUANTILE = 0.9;
+
     private static final CtxLogger logger = CtxLogger.of(ConnectionRequest.class);
 
-    private record Meters(Counter connectTimeouts, AtomicInteger inFlightConnects) {
+    private record Meters(Counter connectTimeouts, AtomicInteger inFlightConnects, Timer connectLatency) {
         static Meters create(MeterRegistry registry) {
             // Both meters observe the CONNECT flow's outbound hop (gw_to_app): how long the
             // app takes to acknowledge, and how many acknowledgements are outstanding. The
@@ -44,7 +56,13 @@ public class ConnectionRequest extends HttpFilter {
                     .tag("site", "gw_to_app")
                     .register(registry);
 
-            return new Meters(connectTimeouts, inFlightConnects);
+            Timer connectLatency = Timer.builder("wsgw.connect.latency")
+                    .tag("flow", "connect")
+                    .tag("site", "gw_to_app")
+                    .publishPercentiles(ADMISSION_QUANTILE)
+                    .register(registry);
+
+            return new Meters(connectTimeouts, inFlightConnects, connectLatency);
         }
     }
 
@@ -53,6 +71,7 @@ public class ConnectionRequest extends HttpFilter {
     private final int maxInflightConnections;
     private final Duration connectWaitTimeout;
     private final CircuitBreaker circuitBreaker;
+    private final Duration defaultAdmissionHoldDown;
     private final Meters meters;
 
     public ConnectionRequest(
@@ -61,12 +80,14 @@ public class ConnectionRequest extends HttpFilter {
             int maxInflightConnections,
             Duration connectWaitTimeout,
             CircuitBreaker circuitBreaker,
+            Duration defaultAdmissionHoldDown,
             MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.connectionIdProvider = connectionIdProvider;
         this.maxInflightConnections = maxInflightConnections;
         this.connectWaitTimeout = connectWaitTimeout;
         this.circuitBreaker = circuitBreaker;
+        this.defaultAdmissionHoldDown = defaultAdmissionHoldDown;
         this.meters = Meters.create(meterRegistry);
     }
 
@@ -77,6 +98,7 @@ public class ConnectionRequest extends HttpFilter {
         String path = req.getServletPath();
         if (!path.startsWith(WsgwPaths.CONNECT_FROM_CLIENT)) {
             res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return;
         }
 
         var holdDown = circuitBreaker.jitteredRemaining();
@@ -91,16 +113,21 @@ public class ConnectionRequest extends HttpFilter {
         var connectionId = this.connectionIdProvider.generateId();
 
         int appStatus;
+        long start = System.nanoTime();
         try {
             var inFlights = meters.inFlightConnects.incrementAndGet();
             logger.debug("inFlightConnects: {}, in excess: {}", inFlights, inFlights - maxInflightConnections);
             if (inFlights > maxInflightConnections) {
-                res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+                res.addHeader("Retry-After", String.valueOf(jitteredAdmissionHoldDown()));
+                res.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Too many connect requests in-flight");
                 return;
             }
+            start = System.nanoTime();
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
+            meters.connectLatency.record(Duration.ofNanos(System.nanoTime() - start));
         } catch (HttpTimeoutException timeoutException) {
             meters.connectTimeouts().increment();
+            meters.connectLatency.record(Duration.ofNanos(System.nanoTime() - start));
             circuitBreaker.increment();
             res.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "request timed out");
             return;
@@ -138,5 +165,25 @@ public class ConnectionRequest extends HttpFilter {
                 "GET", null, connectWaitTimeout);
         log.debug("Registered with app: status {}", response.statusCode());
         return response.statusCode();
+    }
+
+    // The ADMISSION_QUANTILE connect latency in seconds, or 0 when the timer holds no samples
+    // yet -- or when the quantile is not among those the timer was built to track, which would
+    // be a wiring error rather than a runtime condition. Both read as "no evidence", which is
+    // what jitteredAdmissionHoldDown falls back to defaultAdmissionHoldDown on.
+    private double connectLatencyTailSeconds() {
+        for (var valueAtPercentile : meters.connectLatency().takeSnapshot().percentileValues()) {
+            if (valueAtPercentile.percentile() == ADMISSION_QUANTILE) {
+                return valueAtPercentile.value(TimeUnit.SECONDS);
+            }
+        }
+        return 0;
+    }
+
+    private long jitteredAdmissionHoldDown() {
+        var latencyTail = connectLatencyTailSeconds();
+        var exact = latencyTail > 0 ? latencyTail : defaultAdmissionHoldDown.toSeconds();
+        double fraction = MIN_ADMISSION_HOLD_DOWN_JITTER_FRACTION + ThreadLocalRandom.current().nextDouble() * (1 - MIN_ADMISSION_HOLD_DOWN_JITTER_FRACTION);
+        return Math.max(1, Math.round(exact * fraction));
     }
 }

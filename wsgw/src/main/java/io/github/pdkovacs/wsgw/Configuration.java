@@ -16,6 +16,8 @@ public class Configuration {
 
     private int maxInFlightConnects = 10000;
 
+    private Duration defaultAdmissionHoldDown = Duration.ofSeconds(10);
+
     private Duration connectFailureCountWindow = Duration.ofSeconds(30);
 
     private int connectFailurePreemptThreshold = 30;
@@ -82,6 +84,14 @@ public class Configuration {
 
     public void setMaxInFlightConnects(int maxInFlightConnects) {
         this.maxInFlightConnects = maxInFlightConnects;
+    }
+
+    public Duration getDefaultAdmissionHoldDown() {
+        return defaultAdmissionHoldDown;
+    }
+
+    public void setDefaultAdmissionHoldDown(Duration defaultAdmissionHoldDown) {
+        this.defaultAdmissionHoldDown = defaultAdmissionHoldDown;
     }
 
     public Duration getConnectFailureCountWindow() {
