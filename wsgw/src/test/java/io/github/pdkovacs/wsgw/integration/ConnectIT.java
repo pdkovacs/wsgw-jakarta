@@ -3,8 +3,8 @@ package io.github.pdkovacs.wsgw.integration;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.Configuration;
+import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.websocket.DeploymentException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -14,16 +14,27 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 
 @Timeout(5)
 public class ConnectIT {
 
     private static final CtxLogger logger = CtxLogger.of(ConnectIT.class);
+
+    record AsyncConnecting(CountDownLatch connected, AtomicReference<Exception> exception) {
+        void await() throws InterruptedException {
+            connected.await();
+            if (exception.get() != null) {
+                throw new RuntimeException(exception.get());
+            }
+        }
+    }
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 
@@ -111,18 +122,17 @@ public class ConnectIT {
 
     @Test
     void inflightConnectsGauge(@TempDir Path tempDir) throws Exception {
-        var tcLogger = logger.with("test-case", "inflightConnectsGauge");
         // ARRANGE
-        var connectionEstablished = new CountDownLatch(2);
+        ArrayList<AsyncConnecting> asyncConnectings = new ArrayList<>();
         var appConnectImplBlocking = new CountDownLatch(2);
         var unblockAppConnect = new CountDownLatch(1);
         try {
             wsgwTestContext.setUp(tempDir);
-            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectIT.createWaitImpl(appConnectImplBlocking, unblockAppConnect));
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(createWaitImpl(appConnectImplBlocking, unblockAppConnect));
 
             // ACT
             for (var i = 0; i < 2; i++) {
-                connectChecked(connectionEstablished, false);
+                asyncConnectings.add(connectAsync());
             }
             appConnectImplBlocking.await();
 
@@ -130,43 +140,86 @@ public class ConnectIT {
             assertThat(wsgwTestContext.meters.inflightConnects()).isEqualTo(2);
         } finally {
             unblockAppConnect.countDown();
-            connectionEstablished.await();
+            for (AsyncConnecting asyncConnecting : asyncConnectings) {
+                asyncConnecting.await();
+            }
         }
     }
 
     @Test
+    void connectToAppLatencyIsMetered(@TempDir Path tempDir) throws Exception {
+        var tcLogger = logger.with("test-case", "connectToAppLatencyIsMetered");
+
+        wsgwTestContext.setUp(tempDir);
+
+        var connectionEstablished = new CountDownLatch(1);
+        AsyncConnecting asyncConnecting = null;
+        try {
+            wsgwTestContext.connectClient(connectionEstablished);
+
+            assertThat(wsgwTestContext.meters.connectLatency().max(TimeUnit.SECONDS)).isLessThan(1);
+            assertThat(wsgwTestContext.meters.connectLatency().max(TimeUnit.SECONDS)).isGreaterThan(0);
+
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(() -> {
+                try {
+                    Thread.sleep(Duration.ofSeconds(2));
+                } catch (InterruptedException e) {
+                    tcLogger.warn("Connect app impl interrupted");
+                }
+            });
+            asyncConnecting = connectAsync();
+        } finally {
+            if (asyncConnecting != null) {
+                asyncConnecting.await();
+            }
+            connectionEstablished.await();
+        }
+        assertThat(wsgwTestContext.meters.connectLatency().max(TimeUnit.SECONDS)).isGreaterThan(2);
+    }
+
+    @Test
+    @Timeout(6)
     void excessInflightConnectThrows503(@TempDir Path tempDir) throws Exception {
-        var tcLogger = logger.with("test-case", "inflightConnectInExcessThrows503");
-        // ARRANGE
+        var mLogger = logger.with("method", "excessInflightConnectThrows503");
         int maxInFlightConnects = 1;
+        int latencySeconds = 2;
         var config = new Configuration();
         config.setMaxInFlightConnects(maxInFlightConnects);
 
-        var connectionEstablished = new CountDownLatch(1);
-        var appConnectImplBlocking = new CountDownLatch(1);
+        AsyncConnecting asyncConnecting = null;
         var unblockAppConnectImpl = new CountDownLatch(1);
         try {
             wsgwTestContext.setUp(tempDir, config);
-            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(ConnectIT.createWaitImpl(appConnectImplBlocking, unblockAppConnectImpl));
 
-            // ACT
-            connectChecked(connectionEstablished, false);
+            // Generate some latency metrics
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(() -> {
+                try {
+                    Thread.sleep(Duration.ofSeconds(latencySeconds));
+                } catch (InterruptedException e) {
+                    mLogger.warn("Connect app impl interrupted");
+                }
+            });
+            var latencyGeneratingConnectionEstablished = new CountDownLatch(1);
+            wsgwTestContext.connectClient(latencyGeneratingConnectionEstablished);
+            latencyGeneratingConnectionEstablished.await();
+
+            var appConnectImplBlocking = new CountDownLatch(1);
+            wsgwTestContext.fakeAppConfig.setConnectProcessingImpl(createWaitImpl(appConnectImplBlocking, unblockAppConnectImpl));
+
+            asyncConnecting = connectAsync();
             appConnectImplBlocking.await();
 
-            try {
-                connectChecked(connectionEstablished, true);
-                fail("Expected exception: HTTP 503");
-            } catch (Exception e) {
-                assertThat(e).isInstanceOf(DeploymentException.class);
-                var deploymentException = (DeploymentException) e;
-                assertThat(deploymentException).hasMessageContaining("[503]");
-            }
+            HttpResponse<String> response = rawConnect();
+            assertThat(response.statusCode()).isEqualTo(503);
+            assertThat(response.headers().firstValue("Retry-After").isPresent()).isTrue();
+            assertRetryAfterWithinJitteredRange(response, latencySeconds, ConnectionRequest.MIN_ADMISSION_HOLD_DOWN_JITTER_FRACTION);
 
-            tcLogger.debug("assert...");
             assertThat(wsgwTestContext.meters.inflightConnects()).isEqualTo(1);
         } finally {
             unblockAppConnectImpl.countDown();
-            connectionEstablished.await();
+            if (asyncConnecting != null) {
+                asyncConnecting.await();
+            }
         }
     }
 
@@ -199,31 +252,32 @@ public class ConnectIT {
         // Trigger the signal:
         var response = rawConnect();
         assertThat(response.statusCode()).as("503 from /connect pre-empt").isEqualTo(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-        // Retry-After is jittered to a random fraction in [CircuitBreaker.MIN_JITTER_FRACTION, 1.0]
+        // Retry-After is jittered to a random fraction in [minJitterFraction, 1.0]
         // of the true remaining hold-down (CircuitBreaker.jitteredRemaining()), so assert a range
         // rather than the exact remaining, with the same -1s slack for the seconds truncation as before.
-        assertRetryAfterWithinJitteredRange(response, config.getConnectPreemptHoldDown().toSeconds() - 1);
+        assertRetryAfterWithinJitteredRange(response, config.getConnectPreemptHoldDown().toSeconds() - 1, CircuitBreaker.MIN_JITTER_FRACTION);
 
         var moreHoldDownSec = 3;
         Thread.sleep(Duration.ofSeconds(moreHoldDownSec));
         response = rawConnect();
-        assertRetryAfterWithinJitteredRange(response, config.getConnectPreemptHoldDown().toSeconds() - 1 - moreHoldDownSec);
+        assertRetryAfterWithinJitteredRange(response, config.getConnectPreemptHoldDown().toSeconds() - 1 - moreHoldDownSec, CircuitBreaker.MIN_JITTER_FRACTION);
     }
 
-    private void assertRetryAfterWithinJitteredRange(HttpResponse<String> response, long exactRemainingSecs) {
+    private void assertRetryAfterWithinJitteredRange(HttpResponse<String> response, long exactRemainingSecs, double minJitterFraction) {
         var retryAfter = response.headers().firstValue("Retry-After");
         assertThat(retryAfter).as("503 from /connect pre-empt hold-down period").isPresent();
         var retryAfterSecs = Long.parseLong(retryAfter.get());
-        var lowerBoundSecs = Math.round(exactRemainingSecs * CircuitBreaker.MIN_JITTER_FRACTION) - 1;
+        var lowerBoundSecs = Math.round(exactRemainingSecs * minJitterFraction) - 1;
         assertThat(retryAfterSecs)
                 .as("503 from /connect pre-empt hold-down period, jittered")
                 .isBetween(lowerBoundSecs, exactRemainingSecs);
     }
 
-    private void connectChecked(CountDownLatch connectionEstablished, boolean join) throws Exception {
+    private AsyncConnecting connectAsync() throws Exception {
+        CountDownLatch connectionEstablished = new CountDownLatch(1);
+        final AtomicReference<Exception> exception = new AtomicReference<Exception>();
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
-        final Exception[] savedException = new Exception[1];
-        Thread t = Thread.ofVirtual().start(() -> {
+        Thread.ofVirtual().start(() -> {
             this.wsgwTestContext.connectionIdGeneratorMock.roll();
             try {
                 wsgwTestContext.wsTestClients.connect(
@@ -232,16 +286,13 @@ public class ConnectIT {
                         connectionEstablished
                 );
             } catch (Exception e) {
-                savedException[0] = e;
-                logger.error("[connectChecked]: test client failed to connect", e);
+                exception.set(e);
+                logger.error("[connectAsync]: test client failed to connect", e);
+                connectionEstablished.countDown();   // let await() through to the check
             }
         });
-        if (join) {
-            t.join();
-            if (savedException[0] != null) {
-                throw savedException[0];
-            }
-        }
+
+        return new AsyncConnecting(connectionEstablished, exception);
     }
 
     static Runnable createWaitImpl(CountDownLatch readyForBlocking, CountDownLatch unblock) {
