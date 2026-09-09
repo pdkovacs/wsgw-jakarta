@@ -39,7 +39,7 @@ public class ConnectionRequest extends HttpFilter {
 
             // -- in-flights
             AtomicInteger inFlightConnects = new AtomicInteger(0);
-            Gauge.builder("wsgw.connects.inflight", inFlightConnects, AtomicInteger::get)
+            Gauge.builder("wsgw.connect.inflight", inFlightConnects, AtomicInteger::get)
                     .tag("flow", "connect")
                     .tag("site", "gw_to_app")
                     .register(registry);
