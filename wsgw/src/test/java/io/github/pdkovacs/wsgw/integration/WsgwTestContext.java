@@ -28,7 +28,7 @@ public class WsgwTestContext {
         }
 
         int inflightConnects() {
-            return (int) registry.get("wsgw.connects.inflight").tag("flow", "connect").tag("site", "gw_to_app")
+            return (int) registry.get("wsgw.connect.inflight").tag("flow", "connect").tag("site", "gw_to_app")
                     .gauge().value();
         }
     }

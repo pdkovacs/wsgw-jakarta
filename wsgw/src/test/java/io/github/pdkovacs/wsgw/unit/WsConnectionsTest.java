@@ -1,7 +1,6 @@
 package io.github.pdkovacs.wsgw.unit;
 
 import io.github.pdkovacs.wsgw.CircuitBreaker;
-import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.backpressure.ConnectionGone;
 import io.github.pdkovacs.wsgw.backpressure.RetryAfter;
 import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
@@ -19,16 +18,13 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -64,12 +60,12 @@ public class WsConnectionsTest {
             return (int) registry.get("wsgw.registration.waits").tag("flow", "connect").tag("site", "registration").counter().count();
         }
 
-        int registrationTimeoutFlagged() {
-            return (int) registry.get("wsgw.registration.timeout.flagged").tag("flow", "connect").tag("site", "registration").counter().count();
+        int registrationTimeouts() {
+            return (int) registry.get("wsgw.registration.timeouts").tag("flow", "connect").tag("site", "registration").counter().count();
         }
 
-        int registrationTimeoutAbondoned() {
-            return (int) registry.get("wsgw.registration.timeout.abandoned").tag("flow", "connect").tag("site", "registration").gauge().value();
+        int registrationAwaitingTermination() {
+            return (int) registry.get("wsgw.registration.awaiting_termination").tag("flow", "connect").tag("site", "registration").gauge().value();
         }
 
         Timer sendLockWait() {
@@ -77,7 +73,7 @@ public class WsConnectionsTest {
         }
 
         int sendLockTimeouts() {
-          return (int) registry.get("wsgw.send_lock.timeouts").tag("flow", "push").tag("site", "gw_to_client").counter().count();
+            return (int) registry.get("wsgw.send_lock.timeouts").tag("flow", "push").tag("site", "gw_to_client").counter().count();
         }
     }
 
@@ -254,14 +250,14 @@ public class WsConnectionsTest {
 
         assertThat(iterationCount).isLessThan(1000);
         assertThat(underTest.registrationWaits()).isEqualTo(1);
-        assertThat(underTest.registrationTimeoutFlagged()).isEqualTo(0);
+        assertThat(underTest.registrationTimeouts()).isEqualTo(0);
         verify(mockedBasicRemote, times(1)).sendText(testMessage);
         verify(circuitBreaker, times(0)).increment();
         verifyNoMoreInteractions(mockedBasicRemote);
     }
 
     @Test
-    @DisplayName("register never lands → ConnectionGone thrown, connection terminated, wsgw.registration.timeout.flagged incremented")
+    @DisplayName("register never lands → ConnectionGone thrown, connection terminated, wsgw.registration.timeouts incremented")
     void pushTimesOutWhenRegisterNeverArrives() throws IOException {
         var testConnectionId = "some connection-id";
         var testMessage = "some message";
@@ -281,8 +277,8 @@ public class WsConnectionsTest {
         }
 
         assertThat(underTest.registrationWaits()).isEqualTo(0);
-        assertThat(underTest.registrationTimeoutFlagged()).isEqualTo(1);
-        assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(1);
+        assertThat(underTest.registrationTimeouts()).isEqualTo(1);
+        assertThat(underTest.registrationAwaitingTermination()).isEqualTo(1);
         verifyNoMoreInteractions(mockedBasicRemote);
         verifyNoMoreInteractions(mockedSession);
 
@@ -292,7 +288,7 @@ public class WsConnectionsTest {
         verify(mockedSession, times(1)).close(captor.capture());
         assertThat(captor.getValue().getCloseCode()).isEqualTo(CloseReason.CloseCodes.TRY_AGAIN_LATER);
         assertThat(captor.getValue().getReasonPhrase()).isEqualTo("registration too late");
-        assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(0);
+        assertThat(underTest.registrationAwaitingTermination()).isEqualTo(0);
         verify(circuitBreaker, times(1)).increment();
     }
 
@@ -317,15 +313,15 @@ public class WsConnectionsTest {
             assertThat(((ConnectionGone) e).getConnectionId()).isEqualTo(testConnectionId);
         }
 
-        assertThat(underTest.registrationTimeoutFlagged())
+        assertThat(underTest.registrationTimeouts())
                 .as("one connection flagged, however many pushes hit it")
                 .isEqualTo(1);
-        assertThat(underTest.registrationTimeoutAbondoned()).isEqualTo(1);
+        assertThat(underTest.registrationAwaitingTermination()).isEqualTo(1);
         verify(circuitBreaker, times(1)).increment();
 
         // ...and the late registration's single decrement still balances the gauge.
         underTest.connections().register(testConnectionId, mockedSession);
-        assertThat(underTest.registrationTimeoutAbondoned())
+        assertThat(underTest.registrationAwaitingTermination())
                 .as("the gauge returns to zero, so it did not drift upward")
                 .isEqualTo(0);
     }

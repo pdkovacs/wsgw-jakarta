@@ -19,8 +19,8 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
-    private record Meters(Counter registrationWaits, Counter registrationTimeoutFlagged,
-                          AtomicInteger registrationTimeoutAbandoned, Timer sendLockWait,
+    private record Meters(Counter registrationWaits, Counter registrationTimeouts,
+                          AtomicInteger registrationAwaitingTermination, Timer sendLockWait,
                           Counter sendLockTimeouts) {
         static Meters create(MeterRegistry registry) {
             // site=registration: the readiness gate is not a hop. A push is merely the
@@ -29,10 +29,10 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             // connectFailurePreemptThreshold consumes them (docs/backpressure.md 2.2).
             Counter registrationWaits =
                     registry.counter("wsgw.registration.waits", "flow", "connect", "site", "registration");
-            Counter registrationTimeoutFlagged =
-                    registry.counter("wsgw.registration.timeout.flagged", "flow", "connect", "site", "registration");
-            AtomicInteger registrationTimeoutAbandoned = new AtomicInteger(0);
-            Gauge.builder("wsgw.registration.timeout.abandoned", registrationTimeoutAbandoned, AtomicInteger::get)
+            Counter registrationTimeouts =
+                    registry.counter("wsgw.registration.timeouts", "flow", "connect", "site", "registration");
+            AtomicInteger registrationAwaitingTermination = new AtomicInteger(0);
+            Gauge.builder("wsgw.registration.awaiting_termination", registrationAwaitingTermination, AtomicInteger::get)
                     .tag("flow", "connect")
                     .tag("site", "registration")
                     .register(registry);
@@ -43,7 +43,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             Counter sendLockTimeouts =
                     registry.counter("wsgw.send_lock.timeouts", "flow", "push", "site", "gw_to_client");
 
-            return new Meters(registrationWaits, registrationTimeoutFlagged, registrationTimeoutAbandoned,
+            return new Meters(registrationWaits, registrationTimeouts, registrationAwaitingTermination,
                     sendLockWait, sendLockTimeouts);
         }
     }
@@ -85,7 +85,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             });
             if (!conn.registerSession(session)) {
                 conns.remove(connectionId);
-                meters.registrationTimeoutAbandoned().decrementAndGet();
+                meters.registrationAwaitingTermination().decrementAndGet();
                 return false;
             }
             return true;
@@ -149,8 +149,8 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
     // too, so catching those counted one flagged connection N times over -- inflating the gauge
     // and over-feeding the breaker against register()'s single decrement.
     private void onRegistrationTimeout() {
-        meters.registrationTimeoutFlagged().increment();
-        meters.registrationTimeoutAbandoned().incrementAndGet();
+        meters.registrationTimeouts().increment();
+        meters.registrationAwaitingTermination().incrementAndGet();
         connectCircuitBreaker.increment();
     }
 }
