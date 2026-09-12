@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Fires for both `rebase` and `amend`; amend is already handled by
+# post-commit's own HEAD@{1} diff, so only act on rebase here.
+[ "$1" = "rebase" ] || exit 0
+
+. "$REPO_ROOT/scripts/ci/config"
+WATCH="${WSGW_CI_WATCH_PATHS:-$WATCH_PATHS}"
+
+if [ -n "$WATCH" ]; then
+  PREV="$(git rev-parse -q --verify ORIG_HEAD 2>/dev/null || true)"
+  if [ -n "$PREV" ]; then
+    CHANGED="$(git diff --name-only "$PREV" HEAD -- $WATCH)"
+    [ -z "$CHANGED" ] && exit 0
+  fi
+fi
+
+SHA="$(git rev-parse HEAD)"
+setsid nohup "$REPO_ROOT/scripts/ci/run.sh" "$SHA" post-rewrite >/dev/null 2>&1 </dev/null &
+disown
