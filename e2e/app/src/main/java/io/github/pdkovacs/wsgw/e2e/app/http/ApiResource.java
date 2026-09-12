@@ -66,7 +66,8 @@ public class ApiResource {
         for (String connId : connIds) {
             try {
                 int status = wsgwClient.sendToConnection(connId, message);
-                if (status == Response.Status.NOT_FOUND.getStatusCode()) {
+                if (status == Response.Status.NOT_FOUND.getStatusCode()
+                        || status == Response.Status.GONE.getStatusCode()) {
                     wsConnections.removeConnection(userId, connId);
                 }
             } catch (Exception e) {

@@ -137,9 +137,11 @@ public class FromWsgwFilters {
     public static class ReceiveMessage extends HttpFilter {
         private static final CtxLogger logger = CtxLogger.of("FakeApp." + ReceiveMessage.class.getSimpleName());
         private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
+        private final FakeAppConfig fakeAppConfig;
 
-        public ReceiveMessage(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar) {
+        public ReceiveMessage(ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar, FakeAppConfig fakeAppConfig) {
             this.connectionEndpointRegistrar = connectionEndpointRegistrar;
+            this.fakeAppConfig = fakeAppConfig;
         }
 
         protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
@@ -155,6 +157,11 @@ public class FromWsgwFilters {
             var message = req.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
             var cmlogger = logger.with("connectionId", connectionId).with("message", message);
             cmlogger.debug("message received", message);
+            if (fakeAppConfig.getMessageProcessingImpl() != null) {
+                cmlogger.debug("to execute injected custom implementation...");
+                fakeAppConfig.getMessageProcessingImpl().accept(connectionId);
+                cmlogger.debug("injected custom implementation executed successfully");
+            }
             try {
                 connectionEndpointRegistrar.get(connectionId).messages.put(new Message.Text(message));
             } catch (InterruptedException e) {

@@ -34,6 +34,8 @@ public class Configuration {
 
     private int appwardDispatcherQueueSize = 20;
 
+    private Duration relayEnqueueTimeout =  Duration.ofSeconds(30);
+
     public String getAppBaseUrl() {
         return appBaseUrl;
     }
@@ -48,14 +50,6 @@ public class Configuration {
 
     public void setBaseDir(Path baseDir) {
         this.baseDir = baseDir;
-    }
-
-    public int getAppwardDispatcherQueueSize() {
-        return appwardDispatcherQueueSize;
-    }
-
-    public void setAppwardDispatcherQueueSize(int appwardDispatcherQueueSize) {
-        this.appwardDispatcherQueueSize = appwardDispatcherQueueSize;
     }
 
     public Duration getRegistrationWaitTimeout() {
@@ -140,6 +134,22 @@ public class Configuration {
 
     public void setSendLockTimeoutPreemptHoldDown(Duration sendLockTimeoutPreemptHoldDown) {
         this.sendLockTimeoutPreemptHoldDown = sendLockTimeoutPreemptHoldDown;
+    }
+
+    public int getAppwardDispatcherQueueSize() {
+        return appwardDispatcherQueueSize;
+    }
+
+    public void setAppwardDispatcherQueueSize(int appwardDispatcherQueueSize) {
+        this.appwardDispatcherQueueSize = appwardDispatcherQueueSize;
+    }
+
+    public Duration getRelayEnqueueTimeout() {
+        return relayEnqueueTimeout;
+    }
+
+    public void setRelayEnqueueTimeout(Duration relayEnqueueTimeout) {
+        this.relayEnqueueTimeout = relayEnqueueTimeout;
     }
 
     public static Configuration fromEnv() {

@@ -223,7 +223,7 @@ public class MessageStressIT {
 
     private static String sendMessageFromClientToApp(WebsocketTestClient client, String connId) throws IOException {
         final String message = "%s from client over %s".formatted(Math.random(), connId);
-        client.websocketClientSession().getBasicRemote().sendText(message);
+        client.sendText(message);
         return message;
     }
 

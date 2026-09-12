@@ -56,6 +56,12 @@ configuration field exists under that exact name; until then it is described
 in prose, since its exact name and shape are likewise settled by the
 implementation, not by this document.
 
+That transition is easy to half-do: a metric's meter lands, §5.6 gets its
+traceability row, and the prose description that named it in §1–§4 before the
+code existed gets forgotten. When a meter or configuration field lands, sweep
+every §1–§4 reference to it — contract tables, matrix cells, Mermaid nodes —
+from its prose description to its real name.
+
 ---
 
 ## 1. The signal contract (the vocabulary)
@@ -533,8 +539,8 @@ flowchart TD
 #### 2.5.1 Inbound hop `client_to_gw` — the buffer, and the actions in place of signals
 
 **Entry point.** An inbound WebSocket frame from the client. Each connection has
-its own bounded relay buffer, which the receiving side fills and the outbound
-hop drains.
+its own relay buffer, bounded by `appwardDispatcherQueueSize`, which the
+receiving side fills and the outbound hop drains.
 
 **Trigger.** The client produces frames faster than the app drains them, so the
 connection's relay buffer fills.
@@ -542,35 +548,56 @@ connection's relay buffer fills.
 **The asymmetry.** By the signal rule (§2.1) this hop is where a signal would be
 emitted — but the trigger arrived as a WebSocket frame, so there is no HTTP
 request in flight to reject and none of §1's status codes apply. What the
-gateway does instead is act on the connection itself. Three actions are
-available, and they occupy the same slot a signal would: each is the terminal
-step of a congestion decision, aimed back at the producer.
+gateway does instead acts on the connection itself, in two steps that occupy the
+slot a signal would, aimed back at the producer:
 
-- **Stop reading the client socket (preferred)** — the OS flow-control window
-  closes and the client's writes stall. This is TCP backpressure: the closest
-  analogue to natural backpressure, and it loses no data.
-- **Close the WebSocket** — terminate a connection whose backlog cannot be
-  drained, using an application close code.
-- **Drop frames** — discard them; only acceptable if the message contract
-  tolerates loss, which wsgw's does not by default. Last resort.
+1. **Stop reading the client socket, while a frame waits for buffer space.** A
+   frame that finds the buffer full waits, and the gateway reads no further
+   frames from that connection meanwhile. The OS flow-control window closes and
+   the client's writes stall. This is TCP backpressure: the closest analogue to
+   natural backpressure, and it loses no data. It is not an action taken when a
+   budget expires; it is the state the connection is in for the whole wait.
+2. **Drop the frame, when its wait exceeds the relay enqueue timeout.** The
+   waiting frame is discarded and reading resumes. Frames already in the buffer,
+   and the one being relayed to the app, are kept.
+
+**RELAY is best-effort.** Messages from client to app may be lost under
+congestion and duplicated on retry (§2.5.2); order within a connection is kept
+where cheap. The trade is deliberate: a client relays over the same connection
+PUSH delivers over, and PUSH is where the gateway's value lies, so RELAY
+congestion never closes the WebSocket. Nor is a close needed to protect the
+gateway: a client that keeps sending into a full buffer is already contained,
+because the buffer is bounded and reading stops.
 
 **Knobs.**
 
 | Knob | Controls |
 |---|---|
 | `appwardDispatcherQueueSize` | Per-connection relay buffer bound. |
-| relay enqueue timeout | How long the relay may wait for buffer space before taking one of the three actions above. |
+| relay enqueue timeout | How long a frame may wait for buffer space, with reading stopped, before it is dropped. |
 
 **Metrics.**
 
 | Metric | Meaning |
 |---|---|
-| relay buffer depth / high-water mark | Fill level per connection; the only early warning for this flow. |
-| enqueue-block / drop / close counts | How often each of the three actions was taken. |
+| `wsgw.relay.buffer.connections` (tag `fill`) | How many of this gateway instance's connections have their relay buffer in each `fill` band (below); summed across the bands, it is the number of connections. The only early warning for this flow. Watch the share of connections in `high` and `full` rather than the counts themselves: a rising share means drains are falling behind, and its size tells a few connections backing up from most of them. Across gateway instances, sum each band's counts before dividing; averaging per-instance shares gives a nearly empty instance the same weight as a busy one. The metric is sampled, so a buffer that fills up and empties between two samples leaves no trace here; relay enqueue wait time records every wait a full buffer caused. |
+| relay enqueue wait time | How long a frame waited for buffer space, with reading stopped. Recorded when the wait ends, so a stall still in progress shows up at most one relay enqueue timeout late. |
+| relay drop count | Frames dropped because their wait exceeded the relay enqueue timeout. |
 
-**Signals.** None over HTTP — see the three actions above. Because relay congestion
-cannot turn a request red, it is observable only through the buffer-depth and
-retry metrics until it escalates to a WebSocket close.
+**Fill bands.** Band edges are fractions of `appwardDispatcherQueueSize`, written
+*b*, so they stay put when the bound is re-tuned. `empty` and `full` are fixed by
+the buffer itself; the split at half the bound is a convention.
+
+| Band | Buffer holds | Meaning |
+|---|---|---|
+| `empty` | nothing | The drain is keeping up. |
+| `low` | more than 0, at most *b*/2 | Some backlog; normal for bursty traffic. |
+| `high` | more than *b*/2, fewer than *b* | Nearing the point where reading stops. |
+| `full` | *b* | The next frame waits, and reading from the client stops (step 1 above). |
+
+**Signals.** None over HTTP — see the two steps above. Because relay congestion
+cannot turn a request red, it is observable only through the buffer-fill, drop
+and retry metrics.
 
 #### 2.5.2 Outbound hop `gw_to_app` — where the congestion is
 
@@ -581,9 +608,11 @@ per-connection drain.
 
 | Knob | Controls |
 |---|---|
-| relay response deadline | How long the gateway waits for the app to accept a relayed message. On expiry the message is re-sent, up to `max relay retries`; once those are exhausted the connection is closed. |
-| max relay retries | How many times a message whose deadline expired is re-sent before the gateway gives up on the connection. This knob alone decides *whether* retries happen: zero means the first deadline expiry closes the connection. |
+| relay response deadline | How long the gateway waits for the app to accept a relayed message. On expiry the message is re-sent, up to `max relay retries` and while the relay retry budget allows; otherwise the message is dropped. |
+| max relay retries | How many times a message whose deadline expired is re-sent before the gateway drops it. Zero means the first deadline expiry drops the message. The relay retry budget can still refuse a retry this knob allows. |
 | relay retry interval | How long the gateway waits between retries, in milliseconds. Spacing only — it has no bearing on whether a retry is attempted. |
+| relay retry budget | The share of recent relays that may be retries, e.g. 10–20%, counted per gateway instance. When it is spent, a message whose deadline expired is dropped without a retry, even if `max relay retries` would allow one. |
+| relay retry budget window | How far back the relay retry budget counts. Long enough that one short burst of late responses does not spend the budget for the whole window. |
 
 **Metrics.**
 
@@ -591,21 +620,45 @@ per-connection drain.
 |---|---|
 | relay-to-app latency | How long the app takes to accept a relayed message. |
 | relay retry count | Messages re-sent after a deadline expiry. A rising count means the drain is stalling before the buffer shows it. |
-| retry-exhaustion count | Connections closed because their retries ran out. Every increment is one connection destroyed and one client forced to reconnect, so this is the distress signal of the pair. |
+| retry-exhaustion count | Messages dropped because their retries ran out. Every increment is a message the gateway gave up on — possibly processed by the app, possibly lost — so this is a distress signal. |
+| retry-budget drop count | Messages dropped without a retry because the relay retry budget was spent. A rising count means most relays are timing out: the app as a whole is slow, not one instance of it. |
 
 **Retry is re-delivery.** A deadline expiry does not mean the app failed to
-process the message — the response may merely be late. Retrying therefore makes
-relay delivery at-least-once, so `POST /ws/message/{connectionId}` must be
-idempotent or otherwise tolerate duplicates. That is part of the app-side
-contract, not an implementation detail.
+process the message — the response may merely be late. Retrying can therefore
+deliver a message twice, so `POST /ws/message/{connectionId}` must be idempotent
+or otherwise tolerate duplicates; the gateway attaches no message id to help
+tell them apart. That is part of the app-side contract, not an implementation
+detail.
 
-**The two relay budgets interact — across the two hops.** Retries occupy the
+**Retries are capped across messages, too.** A late response usually means the
+app is still working on the message, and a retry does not stop that work, so
+every retry adds load — most of all when the app is already saturated. The relay
+retry budget (the term Envoy and Finagle use; unlike the time budgets elsewhere
+in this document, it limits a share of traffic) tells the two cases apart without
+the gateway knowing which instance answered. If one instance out of k is slow,
+about 1/k of relays time out and their retries fit in the budget. If the app as
+a whole is slow, most relays time out, the budget is spent at once, and those
+messages are dropped instead of piling duplicate work onto the app.
+
+**Each relay carries its deadline.** With each relay attempt the gateway sends
+the relay response deadline for that attempt, in milliseconds, as a request
+header (name not yet decided). An app may note arrival time plus that value as a
+local deadline and, when it takes the message off its own queue, drop it
+unprocessed if the deadline has passed: by then the gateway has already retried
+or dropped it. Honouring the header is optional. The value is relative rather
+than an absolute timestamp, so gateway and app clocks need not agree; it leaves
+out network and load-balancer transit time, which errs toward the app keeping a
+message slightly too long. It reduces duplicate work without preventing
+duplicates: a message taken off the app's queue just before its deadline is
+still processed, and so is its retry.
+
+**The two relay time budgets interact — across the two hops.** Retries occupy the
 connection's single drain path, so the worst-case head-of-line stall is
 `(max relay retries + 1) × relay response deadline + max relay retries × relay
 retry interval`. A stalled drain is exactly what fills the buffer on the inbound
-hop, so if the relay enqueue timeout is shorter than that stall, an exhausted
-retry sequence on a busy connection also trips the enqueue timeout and the
-operator sees two actions fire from one cause. The two budgets have to be tuned
+hop, so if the relay enqueue timeout is shorter than that stall, one slow message
+on a busy connection also makes frames drop on the inbound hop, and the operator
+sees both hops' drop counts move from one cause. The two budgets have to be tuned
 against each other even though they sit on different hops.
 
 **Dependencies.**
@@ -613,29 +666,31 @@ against each other even though they sit on different hops.
 ```mermaid
 flowchart TD
     subgraph inbound["inbound hop — client_to_gw"]
-        E1["Inbound WebSocket frame enqueued"]
-        E1 --> MetricDepth["relay buffer depth /\nhigh-water mark (metric)"]
-        MetricDepth -->|"input to"| KnobQueueSize{{"appwardDispatcherQueueSize"}}
-        KnobQueueSize -->|"still full when\nit expires"| KnobEnqueueTimeout{{"relay enqueue timeout"}}
-        KnobEnqueueTimeout --> ActStopRead(["stop reading the client socket\n(preferred — this is TCP backpressure)"])
-        KnobEnqueueTimeout --> ActDrop(["drop frames\n(last resort — wsgw's contract\ndoesn't tolerate loss by default)"])
-        ActClose(["close the WebSocket"])
-        ActStopRead --> MetricActions["enqueue-block / drop / close counts\n(metric)"]
-        ActClose --> MetricActions
-        ActDrop --> MetricActions
+        E1["Inbound WebSocket frame"]
+        ActDrop(["drop the waiting frame;\nreading resumes"])
+        E1 --> MetricFill["wsgw.relay.buffer.connections\n(metric — tag fill: empty/low/high/full)"]
+        MetricFill -->|"input to"| KnobQueueSize{{"appwardDispatcherQueueSize"}}
+        KnobQueueSize -->|"buffer full"| ActStopRead(["stop reading the client socket\nwhile the frame waits\n(TCP backpressure)"])
+        ActStopRead --> KnobEnqueueTimeout{{"relay enqueue timeout"}}
+        KnobEnqueueTimeout -->|"still waiting when\nit expires"| ActDrop
+        ActStopRead --> MetricWait["relay enqueue wait time\n(metric)"]
+        ActDrop --> MetricDrops["relay drop count\n(metric)"]
     end
 
     subgraph outbound["outbound hop — gw_to_app"]
         E0["Buffered frame relayed to app"]
+        ActDropMessage(["drop the message"])
         E0 --> MetricLatency["relay-to-app latency\n(metric — leading indicator only)"]
         E0 -->|"app hasn't accepted when\nit expires"| KnobDeadline{{"relay response deadline"}}
         KnobDeadline --> KnobRetries{{"max relay retries /\nrelay retry interval"}}
-        KnobRetries -->|"retries remain,\nspaced by the interval"| E0
+        KnobRetries -->|"retries remain"| KnobBudget{{"relay retry budget /\nrelay retry budget window"}}
+        KnobBudget -->|"budget left,\nspaced by the interval"| E0
+        KnobRetries -->|"retries exhausted"| ActDropMessage
+        KnobBudget -->|"budget spent"| ActDropMessage
         KnobRetries --> MetricRetries["relay retry count /\nretry-exhaustion count (metric)"]
+        KnobBudget --> MetricBudgetDrops["retry-budget drop count\n(metric)"]
     end
 
-    KnobEnqueueTimeout -->|"backlog cannot be drained"| ActClose
-    KnobRetries -->|"retries exhausted"| ActClose
     E1 -->|"drained by"| E0
 ```
 
@@ -662,10 +717,10 @@ visible.
   be distinguishable.
 
 - **Slow RELAY has no request-level symptom.** Unable to emit a signal, relay
-  congestion stays invisible to HTTP callers and shows only in buffer depth until
-  it escalates to a close. Operators must watch that metric directly.
+  congestion stays invisible to HTTP callers and shows only in buffer fill and
+  drop counts. Operators must watch those metrics directly.
 
-- **The two relay budgets straddle RELAY's own two hops** — see §2.5.2.
+- **The two relay time budgets straddle RELAY's own two hops** — see §2.5.2.
 
 ---
 
@@ -678,8 +733,8 @@ visible.
 | **PUSH** app→client | `gw_to_client` | Delivery exceeds budget (slow client link) | No | `sendLockTimeout`; `sendLockTimeoutCountWindow` / `sendLockTimeoutsPreemptThreshold` (per connection); `sendLockTimeoutPreemptHoldDown` | `wsgw.send_lock.wait`; `wsgw.send_lock.timeouts` | — (surfaces on `app_to_gw`) |
 | **CONNECT** client→app | `client_to_gw` | Too many arrivals, or too many recent failures | Yes — `GET /connect` | `maxInFlightConnects`; `defaultAdmissionHoldDown`; `connectFailureCountWindow` / `connectFailurePreemptThreshold`; `connectPreemptHoldDown` | — (consumes the three below) | 503+`Retry-After` (admission: jittered connect-latency estimate; threshold: jittered rest of the hold-down) |
 | **CONNECT** client→app | `gw_to_app` | App slow to ack | No | `connectWaitTimeout` | `wsgw.connect.inflight`; `wsgw.connect.latency`; `wsgw.connect.timeouts` | — (surfaces on `client_to_gw` as 504) |
-| **RELAY** client→app | `client_to_gw` | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout | buffer depth/high-water; block/drop/close counts | none over HTTP → stop reading socket → WS close |
-| **RELAY** client→app | `gw_to_app` | App slow to accept a relayed message | No | response deadline; max retries; retry interval | relay latency; retry & retry-exhaustion counts | none over HTTP → retry → WS close |
+| **RELAY** client→app | `client_to_gw` | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout | `wsgw.relay.buffer.connections`; enqueue wait time; drop count | none over HTTP → stop reading socket → drop frame |
+| **RELAY** client→app | `gw_to_app` | App slow to accept a relayed message | No | response deadline; max retries; retry interval; retry budget / window | relay latency; retry, retry-exhaustion & retry-budget drop counts | none over HTTP → retry → drop message |
 
 ---
 
@@ -857,13 +912,33 @@ draining a bounded `LinkedBlockingQueue`), created via `Relays`.
 
 - **Bounded buffer** — `[implemented]`. `appwardDispatcherQueueSize`
   (`APPWARD_DISPATCHER_QUEUE_SIZE`, default 1024) bounds the queue.
-- **Fast-fail / signalling on the inbound hop** — `[planned]`. When the queue is
-  full, `Dispatcher.accept` calls `queue.put()`, which **blocks the
-  WebSocket-receiving thread** — buffering, but no enqueue timeout, no
-  stop-reading, no close, no metric. This is the rawest instance of the problem:
-  the block is cheap, so nothing throttles the client.
-- Relay response deadline, the retry-then-close escalation behind it, and all
-  RELAY metrics — `[planned]`. `Request.appClient` carries no per-request
+- **Connections by relay buffer fill** — `[implemented]`. `Relays.createMeters`
+  registers four `wsgw.relay.buffer.connections` gauges (`flow=relay`,
+  `site=client_to_gw`, `fill=empty|low|high|full`), each counting relays whose
+  `Relay.queueSize()` falls in that band: `empty` at 0, `low` at
+  `(0, queueSize/2]`, `high` at `(queueSize/2, queueSize)`, `full` at
+  `queueSize` or above.
+- **Relay enqueue timeout, stop-reading and drop** — `[partial]`. When the
+  queue is full, `Dispatcher.accept` calls `queue.offer(dispatch,
+  relayEnqueueTimeout, NANOSECONDS)`, which blocks the WebSocket-receiving thread
+  for up to the timeout; while it blocks, no further frames are read from that
+  connection, which is §2.5.1's stop-reading step. On expiry `offer` returns
+  `false` and `accept` ignores it, so the frame is dropped as §2.5.1 specifies,
+  but silently. The timeout comes from `Configuration.getRelayEnqueueTimeout()`,
+  a settable field, default 30s.
+- **Relay enqueue wait time / relay drop count** — `[planned]`. No meter records
+  the wait, and a drop is neither counted nor logged.
+- **`POISON` exempt from the enqueue timeout** — `[planned]`. On close,
+  `Relay.sendDisconnect` enqueues the disconnect notification and then
+  `Dispatcher.POISON` through the same `accept`, so on a full queue either can
+  time out and be dropped. A dropped disconnect notification leaves a stale
+  connection id in the app's index. A dropped `POISON` is worse: nothing else
+  stops the dispatcher, so its virtual thread stays blocked in `queue.take()`
+  once the queue drains, and `Relays.scanForRemoveDefunctAsync` never removes the
+  relay, because it removes only relays whose thread has exited. `Relays.stop`
+  joins with a 5s timeout and does not interrupt.
+- Relay response deadline, the retry-then-drop escalation behind it, the relay
+  retry budget, the deadline header, and the §2.5.2 metrics — `[planned]`. `Request.appClient` carries no per-request
   timeout today, so nothing bounds a relay whose app never answers, and there is
   no retry path to hang off that bound.
 
@@ -905,8 +980,12 @@ touch.
 | §2.4.2 metric `wsgw.connect.timeouts` | `ConnectionRequest` → `Counter` (same tags); incremented on `HttpTimeoutException` | `[partial]` | not scrapeable; also feeds `CircuitBreaker`, the preempt threshold's decision state |
 | §2.4.2 metric `wsgw.connect.latency` | `ConnectionRequest.doFilter` → `Timer` with `publishPercentiles(ADMISSION_QUANTILE)` (same tags); recorded around `registerWithApp` on both the success and the `HttpTimeoutException` path | `[partial]` | not scrapeable; also the input to the admission `Retry-After`, and its published `quantile` series is per-process, so it does not aggregate across gateway instances |
 | §2.5.1 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
-| §2.5.1 relay enqueue timeout + its three actions + metrics | `Dispatcher.accept` (`queue.put()` blocks when full) | `[planned]` | no fast-fail, no stop-reading / WS close, no metric |
+| §2.5.1 metric connections by relay buffer fill | `Relays.createMeters` → four `wsgw.relay.buffer.connections` `Gauge`s (`flow=relay`/`site=client_to_gw`/`fill=empty\|low\|high\|full`), each over `Relay::queueSize` | `[implemented]` | not scrapeable — no exporter wired yet (§5.5); covered by `RelayIT.assertBandsEventually` |
+| §2.5.1 relay enqueue timeout, stop-reading and drop | `Dispatcher.accept` (`queue.offer` with the timeout); value from `Configuration.getRelayEnqueueTimeout()` | `[partial]` | settable field, default 30s; `offer`'s `false` is ignored, so drops are silent |
+| §2.5.1 metrics relay enqueue wait time / relay drop count | — | `[planned]` | no meter; drops are not logged either |
 | §2.5.2 relay response deadline | `Request.appClient` | `[planned]` | no per-request timeout, so nothing bounds a relay the app never answers |
-| §2.5.2 retry-then-close escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]` | blocked on the deadline row above — there is no expiry event to retry from; also needs the at-least-once duplicate tolerance stated in §2.5.2 agreed with the app side |
-| §2.5.2 metrics relay retry count / retry-exhaustion count | — | `[planned]` | retry-exhaustion is the flow's distress signal; no meter yet |
+| §2.5.2 retry-then-drop escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]` | blocked on the deadline row above — there is no expiry event to retry from; also needs the duplicate tolerance stated in §2.5.2 agreed with the app side |
+| §2.5.2 metrics relay retry count / retry-exhaustion count / retry-budget drop count | — | `[planned]` | retry-exhaustion is the flow's distress signal; no meter yet |
+| §2.5.2 relay retry budget / relay retry budget window | — | `[planned]` | blocked on the retry row above; per gateway instance, no coordination between instances |
+| §2.5.2 relay deadline header | — | `[planned]` | blocked on the deadline row; header name not decided |
 | §1 uniform `Retry-After` on 429/503 | — | `[planned]` | |

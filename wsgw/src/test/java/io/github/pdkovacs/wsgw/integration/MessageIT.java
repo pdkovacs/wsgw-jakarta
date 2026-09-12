@@ -1,6 +1,5 @@
 package io.github.pdkovacs.wsgw.integration;
 
-import jakarta.websocket.Session;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -129,7 +128,7 @@ public class MessageIT {
         if (err != null) {
             throw new AssertionError("send failed under load", err);
         }
-        wsTestClient.websocketClientSession().close();
+        wsTestClient.disconnect();
 
         assertMessagesToApp(connId, nrMessagesToSend, List.copyOf(messagesSentToApp));
         assertMessagesToClient(wsTestClient, nrMessagesToSend, List.copyOf(messagesSentToClient));
@@ -228,7 +227,7 @@ public class MessageIT {
 
         for (ClientTestCtx clientCtx : processedClientContexts) {
             var wsTestClient = clientCtx.testClient();
-            wsTestClient.websocketClientSession().close();
+            wsTestClient.disconnect();
 
             var messagesSentToClient = clientCtx.messagesSentToClient();
             var messagesSentToApp = clientCtx.messagesSentToApp();
@@ -240,8 +239,7 @@ public class MessageIT {
     private static @NonNull String sendMessageFromClientToApp(WebsocketTestClient wsTestClient, String connId)
             throws IOException {
         final String messageToApp = "%s from client over %s".formatted(Math.random(), connId);
-        Session session = wsTestClient.websocketClientSession();
-        session.getBasicRemote().sendText(messageToApp);
+        wsTestClient.sendText(messageToApp);
         logger.debug("Message sent to app over {}: {}", connId, messageToApp);
         return messageToApp;
     }

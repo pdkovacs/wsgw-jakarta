@@ -40,7 +40,7 @@ public class FakeApp {
                     AppPaths.CONNECT_FROM_WSGW + "/*");
             FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.Disconnect(connectionEndpointMap, fakeAppConfig),
                     AppPaths.DISCONNECTED_FROM_WSGW + "/*");
-            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.ReceiveMessage(connectionEndpointMap),
+            FromWsgwFilters.addFilter(ctx, new FromWsgwFilters.ReceiveMessage(connectionEndpointMap, fakeAppConfig),
                     AppPaths.MESSAGE_FROM_WSGW + "/*");
 
             tomcat.start();

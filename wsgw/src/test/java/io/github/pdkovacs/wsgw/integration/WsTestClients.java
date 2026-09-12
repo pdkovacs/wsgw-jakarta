@@ -74,6 +74,15 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
         }
     }
 
+    public void sendText(String message) throws IOException {
+        websocketClientSession.getBasicRemote().sendText(message);
+    }
+
+    // The client hangs up; unlike close(), which tears down the whole test client.
+    public void disconnect() throws IOException {
+        websocketClientSession.close();
+    }
+
     public void close() throws Exception {
         // `close` defaults to new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE,
         // "no reason")
