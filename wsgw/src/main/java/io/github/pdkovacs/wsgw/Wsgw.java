@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw;
 
+import io.github.pdkovacs.wsgw.appward.Dispatcher;
 import io.github.pdkovacs.wsgw.appward.Relays;
 import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
@@ -82,7 +83,9 @@ public class Wsgw {
                 configuration.getConnectPreemptHoldDown());
         WsConnections wsConnections = getWsConnections(circuitBreaker);
 
-        appwardRelays = new Relays(appwardRequest, configuration.getAppwardDispatcherQueueSize());
+        var dispatcherQueueParams = new Dispatcher.QueueParams(
+                configuration.getAppwardDispatcherQueueSize(), configuration.getRelayEnqueueTimeout());
+         appwardRelays = new Relays(appwardRequest, dispatcherQueueParams);
 
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the

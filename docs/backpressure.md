@@ -533,8 +533,8 @@ flowchart TD
 #### 2.5.1 Inbound hop `client_to_gw` — the buffer, and the actions in place of signals
 
 **Entry point.** An inbound WebSocket frame from the client. Each connection has
-its own bounded relay buffer, which the receiving side fills and the outbound
-hop drains.
+its own relay buffer, bounded by `appwardDispatcherQueueSize`, which the
+receiving side fills and the outbound hop drains.
 
 **Trigger.** The client produces frames faster than the app drains them, so the
 connection's relay buffer fills.
@@ -581,8 +581,8 @@ per-connection drain.
 
 | Knob | Controls |
 |---|---|
-| relay response deadline | How long the gateway waits for the app to accept a relayed message. On expiry the message is re-sent, up to `max relay retries`; once those are exhausted the connection is closed. |
-| max relay retries | How many times a message whose deadline expired is re-sent before the gateway gives up on the connection. This knob alone decides *whether* retries happen: zero means the first deadline expiry closes the connection. |
+| relay response deadline | How long the gateway waits for the app to accept a relayed message. On expiry the message is re-sent, up to `max relay retries`; once those are exhausted the WebSocket is closed. |
+| max relay retries | How many times a message whose deadline expired is re-sent before the gateway gives up on the connection. This knob alone decides *whether* retries happen: zero means the first deadline expiry closes the WebSocket. |
 | relay retry interval | How long the gateway waits between retries, in milliseconds. Spacing only — it has no bearing on whether a retry is attempted. |
 
 **Metrics.**

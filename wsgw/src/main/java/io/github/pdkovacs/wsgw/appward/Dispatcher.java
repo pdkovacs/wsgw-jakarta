@@ -5,9 +5,12 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import java.time.Duration;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public class Dispatcher {
     private static final CtxLogger logger = CtxLogger.of(Dispatcher.class);
+
+    public record QueueParams(int queueSize, Duration relayEnqueueTimeout) {}
 
     private volatile Thread workerThread;
 
@@ -27,15 +30,17 @@ public class Dispatcher {
 
     private final BlockingQueue<Dispatch> queue;
     private final ErrorChannel errorChannel;
+    private final Duration relayEnqueueTimeout;
 
-    Dispatcher(int queueSize, ErrorChannel errorChannel) {
-        queue = new LinkedBlockingQueue<>(queueSize);
+    Dispatcher(QueueParams queueParams, ErrorChannel errorChannel) {
+        queue = new LinkedBlockingQueue<>(queueParams.queueSize);
         this.errorChannel = errorChannel;
+        this.relayEnqueueTimeout = queueParams.relayEnqueueTimeout;
     }
 
     void accept(Dispatch dispatch) {
         try {
-            queue.put(dispatch);
+            queue.offer(dispatch, relayEnqueueTimeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException e) {
             logger.info("{} interrupted in accept", this);
         }

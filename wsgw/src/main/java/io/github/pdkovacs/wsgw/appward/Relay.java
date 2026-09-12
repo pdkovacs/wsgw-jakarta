@@ -16,13 +16,11 @@ public class Relay {
     private final String connectionId;
     private final Dispatcher dispatcher;
 
-    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, int queueSize) {
+    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, Dispatcher.QueueParams queueParams) {
         this.appwardRequest = appwardRequest;
         this.requestHeaders = requestHeaders;
         this.connectionId = connectionId;
-        dispatcher = new Dispatcher(
-                queueSize,
-                error -> logger.error("Error sending message", error)
+        dispatcher = new Dispatcher(queueParams,error -> logger.error("Error sending message", error)
         );
         dispatcher.start(connectionId);
     }

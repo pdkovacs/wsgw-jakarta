@@ -12,15 +12,15 @@ public class Relays {
 
     private final Request appwardRequest;
     private final ConcurrentHashMap<String, Relay> relays = new ConcurrentHashMap<>();
-    private final int queueSize;
+    private final Dispatcher.QueueParams queueParams;
 
-    public Relays(Request appwardRequest, int queueSize) {
+    public Relays(Request appwardRequest, Dispatcher.QueueParams queueParams) {
         this.appwardRequest = appwardRequest;
-        this.queueSize = queueSize;
+        this.queueParams = queueParams;
     }
 
     public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueSize);
+        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams);
         relays.put(connectionId, relay);
         return relay;
     }
