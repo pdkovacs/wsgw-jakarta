@@ -40,14 +40,14 @@ public class DisconnectIT {
         var wsTestClient1 = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
         String connId2 = this.wsgwTestContext.connectionIdGeneratorMock.roll();
         var wsTestClient2 = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
-        wsTestClient1.websocketClientSession().close();
+        wsTestClient1.disconnect();
         var nextMessage = wsgwTestContext.getAppInbox(connId1).take();
         if (nextMessage instanceof Message.EndOfStream) {
             assertThat("EndOfStream");
         } else {
             fail("Expected EndOfStream, got %s".formatted(nextMessage));
         }
-        wsTestClient2.websocketClientSession().close();
+        wsTestClient2.disconnect();
         var nextMessage1 = wsgwTestContext.getAppInbox(connId2).take();
         if (nextMessage1 instanceof Message.EndOfStream) {
             assertThat("EndOfStream");

@@ -37,6 +37,17 @@ public class WsgwTestContext {
         Timer connectLatency() {
             return registry.get("wsgw.connect.latency").tag("flow", "connect").tag("site", "gw_to_app").timer();
         }
+
+        int relayBufferConnections(String fill) {
+            return (int) registry.get("wsgw.relay.buffer.connections").tag("flow", "relay").tag("site", "client_to_gw")
+                    .tag("fill", fill).gauge().value();
+        }
+
+        int relayEnqueueDrops() {
+            return (int) registry.get("wsgw.relay.enqueue.drops")
+                    .tag("flow", "relay")
+                    .tag("site", "client_to_gw").counter().count();
+        }
     }
 
     private final FakeApp fakeApp = new FakeApp();

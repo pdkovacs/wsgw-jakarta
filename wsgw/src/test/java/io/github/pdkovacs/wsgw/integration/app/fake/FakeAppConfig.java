@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.integration.app.fake;
 
 import java.nio.file.Path;
+import java.util.function.Consumer;
 
 public class FakeAppConfig {
 
@@ -9,6 +10,9 @@ public class FakeAppConfig {
 
     private Runnable connectProcessingImpl;
     private Runnable disconnectProcessingImpl;
+    // Receives the id of the connection the relayed message belongs to, so a test can hold up one
+    // connection's relay while the others pass straight through.
+    private Consumer<String> messageProcessingImpl;
 
     public FakeAppConfig(Path tomcatBaseDir, String[] apiKey) {
         this.tomcatBaseDir = tomcatBaseDir;
@@ -37,5 +41,13 @@ public class FakeAppConfig {
 
     public void setDisconnectProcessingImpl(Runnable disconnectProcessingImpl) {
         this.disconnectProcessingImpl = disconnectProcessingImpl;
+    }
+
+    public Consumer<String> getMessageProcessingImpl() {
+        return messageProcessingImpl;
+    }
+
+    public void setMessageProcessingImpl(Consumer<String> messageProcessingImpl) {
+        this.messageProcessingImpl = messageProcessingImpl;
     }
 }

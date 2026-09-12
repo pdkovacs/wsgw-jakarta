@@ -16,14 +16,11 @@ public class Relay {
     private final String connectionId;
     private final Dispatcher dispatcher;
 
-    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, int queueSize) {
+    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, Dispatcher.QueueParams queueParams) {
         this.appwardRequest = appwardRequest;
         this.requestHeaders = requestHeaders;
         this.connectionId = connectionId;
-        dispatcher = new Dispatcher(
-                queueSize,
-                error -> logger.error("Error sending message", error)
-        );
+        dispatcher = new Dispatcher(queueParams, error -> logger.error("Error sending message", error));
         dispatcher.start(connectionId);
     }
 
@@ -33,9 +30,10 @@ public class Relay {
 
     public void sendDisconnect() {
         logger.debug("sendDisconnect called");
-        dispatcher.accept(() -> {
+        var msgAccepted = dispatcher.accept(() -> {
             relayToApp(AppPaths.DISCONNECTED_FROM_WSGW, null);
         });
+        // TODO: This may need to be changed to a call to a method on `dispatcher` like `close` or `closeQueue`
         dispatcher.accept(Dispatcher.POISON);
     }
 
@@ -73,5 +71,9 @@ public class Relay {
                 ", connectionId='" + connectionId + '\'' +
                 ", dispatcher=" + dispatcher +
                 '}';
+    }
+
+    int queueSize() {
+        return dispatcher.queueSize();
     }
 }
