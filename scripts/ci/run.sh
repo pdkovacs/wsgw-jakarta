@@ -32,6 +32,7 @@ mkdir -p "$RUNS_DIR"
   mkdir -p "$RUN_DIR"
   ln -sfn "$RUN_DIR" "$CI_HOME/latest"
   echo RUNNING > "$RUN_DIR/status"
+  command -v notify-send >/dev/null && notify-send "wsgw CI: started" "$SUBJECT ($BRANCH)" || true
 
   {
     echo "sha=$SHA"
@@ -51,6 +52,8 @@ mkdir -p "$RUNS_DIR"
     echo FAIL > "$RUN_DIR/status"
   fi
   END=$(date +%s)
+  RESULT="$(cat "$RUN_DIR/status")"
+  command -v notify-send >/dev/null && notify-send "wsgw CI: $RESULT" "$SUBJECT ($BRANCH) in $((END - START))s" || true
 
   git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || rm -rf "$WORKTREE_DIR"
   git -C "$REPO_ROOT" worktree prune
