@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Interactive rebase (lazygit's commit-reorder, squash, etc.) replays commits
+# one at a time and fires this hook per replayed commit. post-rewrite handles
+# the rebase as a whole once it finishes, so stay out of its way here.
+if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+  exit 0
+fi
+
 . "$REPO_ROOT/scripts/ci/config"
 WATCH="${WSGW_CI_WATCH_PATHS:-$WATCH_PATHS}"
 
