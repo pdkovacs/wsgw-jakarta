@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+. "$REPO_ROOT/scripts/ci/config"
+WATCH="${WSGW_CI_WATCH_PATHS:-$WATCH_PATHS}"
+
+if [ -n "$WATCH" ]; then
+  PREV="$(git rev-parse -q --verify 'HEAD@{1}' 2>/dev/null || true)"
+  if [ -n "$PREV" ]; then
+    CHANGED="$(git diff --name-only "$PREV" HEAD -- $WATCH)"
+    [ -z "$CHANGED" ] && exit 0
+  fi
+fi
+
+SHA="$(git rev-parse HEAD)"
+setsid nohup "$REPO_ROOT/scripts/ci/run.sh" "$SHA" post-commit >/dev/null 2>&1 </dev/null &
+disown
