@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.appward;
 
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.time.Duration;
 import java.util.List;
@@ -12,15 +13,17 @@ public class Relays {
 
     private final Request appwardRequest;
     private final ConcurrentHashMap<String, Relay> relays = new ConcurrentHashMap<>();
-    private final int queueSize;
+    private final Dispatcher.QueueParams queueParams;
+    private final MeterRegistry meterRegistry;
 
-    public Relays(Request appwardRequest, int queueSize) {
+    public Relays(Request appwardRequest, Dispatcher.QueueParams queueParams, MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
-        this.queueSize = queueSize;
+        this.queueParams = queueParams;
+        this.meterRegistry = meterRegistry;
     }
 
     public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueSize);
+        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams, meterRegistry);
         relays.put(connectionId, relay);
         return relay;
     }

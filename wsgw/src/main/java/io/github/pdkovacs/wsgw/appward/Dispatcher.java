@@ -1,13 +1,19 @@
 package io.github.pdkovacs.wsgw.appward;
 
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.time.Duration;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Dispatcher {
     private static final CtxLogger logger = CtxLogger.of(Dispatcher.class);
+
+    public record QueueParams(int queueSize, Duration relayEnqueueTimeout) {}
 
     private volatile Thread workerThread;
 
@@ -25,17 +31,40 @@ public class Dispatcher {
         void report(Throwable throwable);
     }
 
+    record Meters(AtomicInteger relayBufferDepth, AtomicInteger relayBufferHWMark) {
+        static Meters create(MeterRegistry meterRegistry) {
+            var relayBufferDepth = new AtomicInteger(0);
+            Gauge.builder("wsgw.relay.buffer.depth", relayBufferDepth, AtomicInteger::get)
+                    .tag("flow", "relay")
+                    .tag("site", "client_to_gw")
+                    .register(meterRegistry);
+            var relayBufferHWMark = new AtomicInteger(0);
+            Gauge.builder("wsgw.relay.buffer.hwmark", relayBufferHWMark, AtomicInteger::get)
+                    .tag("flow", "relay")
+                    .tag("site", "client_to_gw")
+                    .register(meterRegistry);
+
+            return new Meters(relayBufferDepth, relayBufferHWMark);
+        }
+    }
+
     private final BlockingQueue<Dispatch> queue;
     private final ErrorChannel errorChannel;
+    private final Duration relayEnqueueTimeout;
+    private final Meters meters;
 
-    Dispatcher(int queueSize, ErrorChannel errorChannel) {
-        queue = new LinkedBlockingQueue<>(queueSize);
+    Dispatcher(QueueParams queueParams, ErrorChannel errorChannel, MeterRegistry meterRegistry) {
+        queue = new LinkedBlockingQueue<>(queueParams.queueSize);
         this.errorChannel = errorChannel;
+        this.relayEnqueueTimeout = queueParams.relayEnqueueTimeout;
+        this.meters = Meters.create(meterRegistry);
     }
 
     void accept(Dispatch dispatch) {
         try {
-            queue.put(dispatch);
+            meters.relayBufferDepth.set(queue.size());
+            incrementToTheMax(meters.relayBufferHWMark, queue.size());
+            queue.offer(dispatch, relayEnqueueTimeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException e) {
             logger.info("{} interrupted in accept", this);
         }
@@ -82,5 +111,22 @@ public class Dispatcher {
     @Override
     public String toString() {
         return "Dispatcher{threadName='" + Thread.currentThread().getName() + "'}";
+    }
+
+    private static boolean incrementToTheMax(AtomicInteger atomicInt, int max) {
+        while (true) {
+            int value = atomicInt.get();
+            if (value >= max) {
+                // The counter has already reached max, so don't increment it.
+                return false;
+            }
+            if (atomicInt.compareAndSet(value, value+1)) {
+                // If we reach here, the atomic integer still had the value "value";
+                // and so we incremented it.
+                return true;
+            }
+            // If we reach here, some other thread atomically updated the value.
+            // Rats! Loop, and try to increment of again.
+        }
     }
 }

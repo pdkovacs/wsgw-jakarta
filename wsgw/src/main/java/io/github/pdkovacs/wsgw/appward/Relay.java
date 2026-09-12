@@ -7,6 +7,7 @@ import java.util.Map;
 
 import io.github.pdkovacs.wsgw.AppPaths;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.MeterRegistry;
 
 public class Relay {
     private static final CtxLogger logger = CtxLogger.of(Relay.class);
@@ -16,13 +17,14 @@ public class Relay {
     private final String connectionId;
     private final Dispatcher dispatcher;
 
-    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, int queueSize) {
+    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, Dispatcher.QueueParams queueParams, MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.requestHeaders = requestHeaders;
         this.connectionId = connectionId;
         dispatcher = new Dispatcher(
-                queueSize,
-                error -> logger.error("Error sending message", error)
+                queueParams,
+                error -> logger.error("Error sending message", error),
+                meterRegistry
         );
         dispatcher.start(connectionId);
     }
