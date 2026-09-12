@@ -1,0 +1,5 @@
+# Sourced by the CI git hooks.
+# Git pathspecs that must change for a commit/merge to trigger a run.
+# Space-separated; empty means "watch everything".
+# Override ad hoc from a shell with WSGW_CI_WATCH_PATHS.
+WATCH_PATHS="wsgw e2e wsgw-contract"
