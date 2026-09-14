@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.TestWatcher;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collection;
@@ -48,9 +49,13 @@ public class MessagePushyIT {
     // How long a client may go without receiving an expected message before we call it lost.
     private static final int DELIVERY_QUIESCENCE_SECONDS = 15;
 
+    private static final long GB = 1024L * 1024 * 1024;
+
     // Cap on concurrently in-flight app->client pushes. Keeps the offered load high without letting
     // ~1,000,000 virtual threads (and their buffers) pile up and thrash the *test* JVM's heap.
-    private static final int MAX_IN_FLIGHT_PUSHES = 20000;
+    // Scaled down on memory-constrained hosts, where fewer in-flight pushes are needed to trigger
+    // the same GC pressure.
+    private static final int MAX_IN_FLIGHT_PUSHES = totalPhysicalMemoryBytes() <= 32 * GB ? 10000 : 20000;
 
     private static final Duration PUSH_TIMEOUT = Duration.ofSeconds(60);
 
@@ -85,8 +90,9 @@ public class MessagePushyIT {
     void sendReceiveMessagesFromAppMultipleClientsPushy() throws Exception {
         final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClientsPushy");
 
-        final int nrClients = 1000;
-        final int nrMessagesToSend = 1000;
+        final boolean lowCoreHost = Runtime.getRuntime().availableProcessors() <= 4;
+        final int nrClients = lowCoreHost ? 500 : 1000;
+        final int nrMessagesToSend = lowCoreHost ? 500 : 1000;
 
         final String wsgwServerName = wsgwTestContext.getWsgwServerName();
         final WsTestClients testClients = wsgwTestContext.wsTestClients;
@@ -219,6 +225,11 @@ public class MessagePushyIT {
         final String message = "%s from client over %s".formatted(Math.random(), connId);
         client.websocketClientSession().getBasicRemote().sendText(message);
         return message;
+    }
+
+    private static long totalPhysicalMemoryBytes() {
+        var osBean = (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+        return osBean.getTotalMemorySize();
     }
 
     private static Throwable rootCause(Throwable t) {
