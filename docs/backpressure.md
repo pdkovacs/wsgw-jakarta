@@ -725,7 +725,7 @@ Handled by `WsConnection.waitForSessionRegistrationToComplete`, reached through
   while `register` decrements `wsgw.registration.awaiting_termination` once — counting the exception gave N
   increments against one decrement, drifting the gauge upward and over-feeding
   the circuit breaker. Pinned by
-  `WsConnectionsTest.flaggedConnectionCountedOncePerConnection`.
+  `ConnectTest.flaggedConnectionCountedOncePerConnection`.
 
 ### 5.2 PUSH
 

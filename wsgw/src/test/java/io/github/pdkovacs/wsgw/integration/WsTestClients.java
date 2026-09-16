@@ -45,7 +45,7 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
     // no fault of the message itself; one retry on a fresh connection is standard practice for
     // that class of failure (see java.net.http and Go net/http, which both do this internally
     // for idempotent requests) and is safe here because the client tolerates duplicate delivery
-    // (see MessagePushyIT.awaitDelivered).
+    // (see MessageStressIT.awaitDelivered).
     private static final int PUSH_ATTEMPTS = 2;
 
     public @NonNull String postMessageFromApp()

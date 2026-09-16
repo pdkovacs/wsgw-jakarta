@@ -150,7 +150,7 @@
 
     <profiles>
         <!-- Diagnostic runs: enable console output and set the test log level in one shot.
-             Usage: mvn -Dtest-logs=DEBUG -Dtest=WsConnectionsTest test
+             Usage: mvn -Dtest-logs=DEBUG -Dtest=PushTest test
                     mvn -Dtest-logs=TRACE -Dit.test=UserResourceIT verify -->
         <profile>
             <id>test-logs</id>

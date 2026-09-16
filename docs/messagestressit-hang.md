@@ -1,8 +1,8 @@
-# MessagePushyIT — status
+# MessageStressIT — status
 
 ## Issue
 
-`MessagePushyIT.sendReceiveMessagesFromAppMultipleClientsPushy` (1000 clients × 1000
+`MessageStressIT.sendReceiveMessagesFromAppMultipleClientsUnderStress` (1000 clients × 1000
 messages each way) would sometimes hang indefinitely under constrained resources
 (originally: 4-core/32GB-class host) instead of failing, producing no report and no
 diagnostic artifacts.
@@ -15,13 +15,13 @@ hang. All three are fixed and verified on a live repro run:
 1. **No push timeout** (`WebsocketTestClient.postMessageFromApp`) — a lost HTTP/2 response
    was unrecoverable by construction. Fixed: `pushRequestTimeout` is now a required
    (`Objects.requireNonNull`-checked) field threaded from `WsgwTestContext.setUp(...)`
-   through `WsTestClients` to `WebsocketTestClient`; `MessagePushyIT` sets it to 60s.
+   through `WsTestClients` to `WebsocketTestClient`; `MessageStressIT` sets it to 60s.
 2. **The `@Timeout` interrupt was swallowed** — `Semaphore.acquire()` on the main thread
    consumed the interrupt before an enclosing try-with-resources executor's `close()` saw
    it, so workers were never interrupted and `close()` looped forever. Fixed: the
    submission loop now throttles via `inFlight.acquire()` per push and drains with a single
    bulk `inFlight.acquire(MAX_IN_FLIGHT_PUSHES)`
-   ([MessagePushyIT.java:141,154](../wsgw/src/test/java/io/github/pdkovacs/wsgw/integration/MessagePushyIT.java#L141)),
+   ([MessageStressIT.java:141,154](../wsgw/src/test/java/io/github/pdkovacs/wsgw/integration/MessageStressIT.java#L141)),
    which propagates the interrupt cleanly (confirmed: `InterruptedException` appears as
    *Suppressed* under the `TimeoutException` in the report, not lost).
 3. **Teardown itself could hang independently of the test body** — `WsgwTestContext.tearDown()`
@@ -36,12 +36,12 @@ hang. All three are fixed and verified on a live repro run:
      clients closed first) until this one landed too.
 
 Latest run: the test fails cleanly at the 300s `@Timeout`, teardown adds under a second
-(365.3s total vs. 364.8s test time), and the `PushyStatsOnFailure` watcher fires correctly.
+(365.3s total vs. 364.8s test time), and the `StressStatsOnFailure` watcher fires correctly.
 Its snapshot log line is easy to miss — the report XML runs to several MB of captured debug
 output — so grep for it rather than scrolling:
 
 ```
-grep -n "Pushy load" wsgw/target/failsafe-reports/TEST-*MessagePushyIT.xml
+grep -n "Stress load" wsgw/target/failsafe-reports/TEST-*MessageStressIT.xml
 ```
 
 That snapshot is the actual open problem now: a **13.2% transport failure rate**
@@ -53,12 +53,12 @@ diagnosed further; this is where the next investigation session should pick up.
 
 ## Repro
 
-Via Docker (`docker/pushy-it.Dockerfile`) — matches the original constrained host (CPU quota,
+Via Docker (`docker/stress-it.Dockerfile`) — matches the original constrained host (CPU quota,
 core-count pinning, memory cap) with no per-run authentication and no dependency on the host's
 systemd/polkit setup:
 
 ```
-docker build -f docker/pushy-it.Dockerfile -t wsgw-pushy-it .
+docker build -f docker/stress-it.Dockerfile -t wsgw-stress-it .
 
 docker run --rm \
     --cpus=1.2 --cpuset-cpus=0-3 --memory=32g \
@@ -66,8 +66,8 @@ docker run --rm \
     -v "$(pwd)":/workspace \
     -v "$HOME/.m2/repository":/m2repo \
     -w /workspace \
-    wsgw-pushy-it \
-    mvn -Dmaven.repo.local=/m2repo -pl wsgw '-Dit.test=*Pushy*' verify
+    wsgw-stress-it \
+    mvn -Dmaven.repo.local=/m2repo -pl wsgw '-Dit.test=*Stress*' verify
 ```
 
 The build only needs to happen once; the source is bind-mounted, not baked in, so code edits
@@ -92,7 +92,7 @@ reproduce the original host's behavior, not just its aggregate CPU-time budget. 
 runs as root, so it applies `--cpuset-cpus` directly with no delegation gap and no prompt.
 
 Whichever way it's invoked, it must be `-Dit.test`, not `-Dtest` — Failsafe's `test` parameter
-has no `-Dtest` alias, and since `MessagePushyIT` also matches Surefire's default include
+has no `-Dtest` alias, and since `MessageStressIT` also matches Surefire's default include
 pattern, `-Dtest` runs it twice (once uninstrumented via Surefire, once via Failsafe), roughly
 doubling wall time.
 
@@ -117,12 +117,12 @@ for i in $(seq 1 $MAX_TRIES); do
       -v "$(pwd)":/workspace \
       -v "$HOME/.m2/repository":/m2repo \
       -w /workspace \
-      wsgw-pushy-it \
-      mvn -Dmaven.repo.local=/m2repo -pl wsgw '-Dit.test=*Pushy*' verify > "$SCRATCH/proof_run_$i.log" 2>&1
+      wsgw-stress-it \
+      mvn -Dmaven.repo.local=/m2repo -pl wsgw '-Dit.test=*Stress*' verify > "$SCRATCH/proof_run_$i.log" 2>&1
   exit_code=$?
-  cp wsgw/target/failsafe-reports/TEST-io.github.pdkovacs.wsgw.integration.MessagePushyIT.xml "$SCRATCH/proof_report_$i.xml"
+  cp wsgw/target/failsafe-reports/TEST-io.github.pdkovacs.wsgw.integration.MessageStressIT.xml "$SCRATCH/proof_report_$i.xml"
   echo "exit: $exit_code"
-  grep -n "Pushy load done\|Connect failure" "$SCRATCH/proof_report_$i.xml"
+  grep -n "Stress load done\|Connect failure" "$SCRATCH/proof_report_$i.xml"
   if grep -q "Push failed, retrying" "$SCRATCH/proof_report_$i.xml"; then
     echo ">>> RETRY EVENT CAUGHT on run $i <<<"
     found=1
