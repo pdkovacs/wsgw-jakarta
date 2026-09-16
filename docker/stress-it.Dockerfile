@@ -1,5 +1,5 @@
-# Build/test image for reproducing MessagePushyIT under constrained CPU/memory
-# (see docs/messagepushyit-hang.md). Source is bind-mounted at run time, not
+# Build/test image for reproducing MessageStressIT under constrained CPU/memory
+# (see docs/messagestressit-hang.md). Source is bind-mounted at run time, not
 # baked in, so edits don't require a rebuild.
 FROM eclipse-temurin:25-jdk
 

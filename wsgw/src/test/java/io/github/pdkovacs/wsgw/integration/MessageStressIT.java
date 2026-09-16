@@ -29,7 +29,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Stress ("pushy") sibling of {@link MessageIT}, kept in its own class because it plays by
+ * Stress sibling of {@link MessageIT}, kept in its own class because it plays by
  * different rules than the functional tests:
  *
  * Rate, not fail-fast. At this volume a stray transport reset is physical, not a
@@ -37,10 +37,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * failures are collected, and we assert on the aggregate rate. Delivery correctness is still
  * every push that got an OK response must reach its inbox.
  */
-@ExtendWith(MessagePushyIT.PushyStatsOnFailure.class)
-public class MessagePushyIT {
+@ExtendWith(MessageStressIT.StressStatsOnFailure.class)
+public class MessageStressIT {
 
-    private static final CtxLogger logger = CtxLogger.of(MessagePushyIT.class);
+    private static final CtxLogger logger = CtxLogger.of(MessageStressIT.class);
 
     // Fraction of transport-level send attempts allowed to fail (e.g. a reset on the h2c upgrade)
     // before the run is considered broken. Set to 0.0 to demand a perfectly clean run.
@@ -62,7 +62,7 @@ public class MessagePushyIT {
     private final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 
     // Load state, kept as fields (rather than test-method locals) so a JUnit @Timeout interrupt
-    // still leaves them readable by PushyStatsOnFailure below.
+    // still leaves them readable by StressStatsOnFailure below.
     private final Collection<ClientTestCtx> processed = new ConcurrentLinkedQueue<>();
     private final Collection<Throwable> transportFailures = new ConcurrentLinkedQueue<>();
     private final LongAdder attempts = new LongAdder();
@@ -87,8 +87,8 @@ public class MessagePushyIT {
 
     @Test
     @Timeout(300)
-    void sendReceiveMessagesFromAppMultipleClientsPushy() throws Exception {
-        final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClientsPushy");
+    void sendReceiveMessagesFromAppMultipleClientsUnderStress() throws Exception {
+        final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClientsUnderStress");
 
         final boolean lowCoreHost = Runtime.getRuntime().availableProcessors() <= 4;
         final int nrClients = lowCoreHost ? 500 : 1000;
@@ -208,7 +208,7 @@ public class MessagePushyIT {
         double rate = total == 0 ? 0.0 : (double) failed / total;
         Map<String, Long> byType = failureBreakdown(failures);
 
-        log.info("Pushy load done: attempts={}, transport failures={} ({}), breakdown={}",
+        log.info("Stress load done: attempts={}, transport failures={} ({}), breakdown={}",
                 total, failed, "%.4f%%".formatted(rate * 100), byType);
 
         assertThat(rate)
@@ -240,19 +240,19 @@ public class MessagePushyIT {
         return c;
     }
 
-    // On a @Timeout interrupt, sendReceiveMessagesFromAppMultipleClientsPushy() throws before
+    // On a @Timeout interrupt, sendReceiveMessagesFromAppMultipleClientsUnderStress() throws before
     // assertFailureRateWithinTolerance() ever runs, so that summary is otherwise lost. This dumps
     // the same kind of snapshot from whatever load state survived the interrupt.
-    static class PushyStatsOnFailure implements TestWatcher {
+    static class StressStatsOnFailure implements TestWatcher {
         @Override
         public void testFailed(ExtensionContext context, Throwable cause) {
-            var test = (MessagePushyIT) context.getRequiredTestInstance();
+            var test = (MessageStressIT) context.getRequiredTestInstance();
             long total = test.attempts.sum();
             long failed = test.transportFailures.size();
             double rate = total == 0 ? 0.0 : (double) failed / total;
 
             logger.warn(
-                    "Pushy load snapshot at failure ({}): clients connected={}, attempts={}, "
+                    "Stress load snapshot at failure ({}): clients connected={}, attempts={}, "
                             + "transport failures={} ({}), breakdown={}, pushes in flight now={}",
                     cause.getClass().getSimpleName(), test.processed.size(), total, failed,
                     "%.4f%%".formatted(rate * 100), failureBreakdown(test.transportFailures),
