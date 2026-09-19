@@ -16,6 +16,5 @@ if [ -n "$WATCH" ]; then
   fi
 fi
 
-SHA="$(git rev-parse HEAD)"
-setsid nohup "$REPO_ROOT/scripts/ci/run.sh" "$SHA" post-rewrite >/dev/null 2>&1 </dev/null &
+setsid nohup "$REPO_ROOT/scripts/ci/run.sh" --worktree "$REPO_ROOT" post-rewrite >/dev/null 2>&1 </dev/null &
 disown
