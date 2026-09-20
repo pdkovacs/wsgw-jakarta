@@ -27,11 +27,11 @@ public class ConnectIT {
 
     private static final CtxLogger logger = CtxLogger.of(ConnectIT.class);
 
-    record AsyncConnecting(CountDownLatch connected, AtomicReference<Exception> exception) {
+    record AsyncConnecting(CountDownLatch connected, AtomicReference<Throwable> throwable) {
         void await() throws InterruptedException {
             connected.await();
-            if (exception.get() != null) {
-                throw new RuntimeException(exception.get());
+            if (throwable.get() != null) {
+                throw new RuntimeException(throwable.get());
             }
         }
     }
@@ -275,7 +275,7 @@ public class ConnectIT {
 
     private AsyncConnecting connectAsync() throws Exception {
         CountDownLatch connectionEstablished = new CountDownLatch(1);
-        final AtomicReference<Exception> exception = new AtomicReference<Exception>();
+        final AtomicReference<Throwable> throwable = new AtomicReference<>();
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
         Thread.ofVirtual().start(() -> {
             this.wsgwTestContext.connectionIdGeneratorMock.roll();
@@ -285,14 +285,19 @@ public class ConnectIT {
                         wsgwTestContext.fakeAppConfig.getApiKey(),
                         connectionEstablished
                 );
-            } catch (Exception e) {
-                exception.set(e);
-                logger.error("[connectAsync]: test client failed to connect", e);
-                connectionEstablished.countDown();   // let await() through to the check
+            } catch (Throwable t) {
+                // Throwable, not Exception: the warm-up asserts the push came back over HTTP/2,
+                // and AssertJ signals a mismatch with an AssertionError, which an Exception catch
+                // lets through -- killing this thread with the latch still up.
+                throwable.set(t);
+                logger.error("[connectAsync]: test client failed to connect", t);
+            } finally {
+                // Count down whatever happens, so a failed connect can never strand the awaiting test.
+                connectionEstablished.countDown();
             }
         });
 
-        return new AsyncConnecting(connectionEstablished, exception);
+        return new AsyncConnecting(connectionEstablished, throwable);
     }
 
     static Runnable createWaitImpl(CountDownLatch readyForBlocking, CountDownLatch unblock) {
