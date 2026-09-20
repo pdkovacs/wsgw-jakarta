@@ -138,6 +138,15 @@ Three words keep the rest of this section unambiguous:
 qualify. `site` is the label a meter is filed under, so it has to stretch to
 cover the one place a call is held up that is not on any wire at all.
 
+Two further words, because the metric names lean on the difference. A
+**connection** is the gateway's logical client-to-app connection: what a
+`connectionId` names, what the app addresses, and what the gateway holds in its
+registry. A **session** is Tomcat's object for the native WebSocket between
+client and gateway. Their lifetimes do not coincide — a connection exists, and
+is already known to the app, before the framework hands its session over, and
+that gap is the whole subject of §2.2. Where a meter says `connections` it means
+the logical ones, and a connection with no session yet still counts as one.
+
 The six arrows above collapse to **four hops**, because `client_to_gw` and
 `gw_to_app` are each shared by two flows.
 
@@ -171,6 +180,22 @@ segment between two parties, which is the kind of claim this section exists to
 stop making. Neither tag is redundant — `site` alone cannot separate CONNECT
 from RELAY, since both end on `gw_to_app`; and `flow` alone cannot separate the
 registration gate from CONNECT's outbound hop, since both are `flow=connect`.
+
+**Meters outside the catalog.** Carrying `flow` and `site` is itself a claim:
+that the meter is about calls being held up somewhere. A meter that describes a
+*population* rather than a wait carries neither tag, and that absence is how the
+two kinds are told apart. `wsgw.connections` is the one such meter today — the
+size of the gateway's connection registry, partitioned by a `state` tag:
+
+| `state` | The connection is… |
+|---|---|
+| `awaiting_registration` | known to the app, but its session not yet handed over (§2.2) |
+| `registered` | usable by the gateway in both directions |
+| `awaiting_termination` | flagged by the gate, waiting for the session so it can be closed (§2.2) |
+
+The three values are mutually exclusive and exhaustive, so they sum back to the
+registry's size. The states are read off the connections themselves rather than
+tallied as they change, which is what keeps the sum true.
 
 **The signal rule.** One rule governs the whole catalog:
 
@@ -222,11 +247,11 @@ the gate before it can reach the `gw_to_client` hop.
 |---|---|
 | `wsgw.registration.waits` | Connections where something arrived before the connection had finished establishing. This counts the *race*, which is benign and normally clears in under a millisecond. It is not a distress signal, and thresholding it would shed load during healthy operation. |
 | `wsgw.registration.timeouts` | Connections flagged for termination because `registrationWaitTimeout` expired before they registered. Every increment is one connection flagged, so unlike the race count above this **is** a distress signal. It is also a direct count of establishments that failed, which is why §2.4 uses it as an input to `connectFailurePreemptThreshold`. |
-| `wsgw.registration.awaiting_termination` | Gauges the number of connections flagged, but still awaiting termination. |
+| `wsgw.connections{state="awaiting_termination"}` | How many connections are flagged, but still awaiting termination. Not a gate meter: it is one state of the connection registry, so it carries `state` rather than `flow`/`site` and is named for the registry it reads (§2.1). |
 
-**These are CONNECT-flow metrics** (`flow=connect`, `site=registration`), not
-PUSH-flow metrics, even though a push is usually the caller that discovers the
-condition. A registration timeout is an establishment that did not complete;
+**The two counters are CONNECT-flow metrics** (`flow=connect`,
+`site=registration`), not PUSH-flow metrics, even though a push is usually the
+caller that discovers the condition. A registration timeout is an establishment that did not complete;
 that a push was the one holding the stopwatch is incidental. §2.4 consumes them
 on exactly that reading.
 
@@ -240,7 +265,7 @@ connection establishment went as far as to provide a connection id to the app
 which has come to the gateway requesting to push a message to the client over
 the connection, the Jakarta framework will eventually register the connection
 and removal from the map will eventually happen.
-`wsgw.registration.awaiting_termination` is gauging the count of flagged
+`wsgw.connections{state="awaiting_termination"}` gauges the count of flagged
 connections where actual termination is yet to happen.
 
 **Signals.** None of its own — the gate has no inbound hop. A caller parked at
@@ -256,7 +281,7 @@ flowchart TD
     KnobReg -->|"registers before it expires"| RaceOK["wsgw.registration.waits\n(metric — benign race, not thresholded)"]
     KnobReg -->|"still unregistered when it expires"| FlagForTermination["connection flagged for termination"]
     FlagForTermination --> MetricTerm["wsgw.registration.timeouts\n(metric)"]
-    FlagForTermination --> MetricAband["wsgw.registration.awaiting_termination\n(metric — gauge, returns to zero)"]
+    FlagForTermination --> MetricAband["wsgw.connections{state=awaiting_termination}\n(metric — gauge, returns to zero)"]
     FlagForTermination --> Close(["WebSocket closed with 1013 TRY_AGAIN_LATER"])
     MetricTerm -.->|"input to"| Ext1[["§2.4: connectFailurePreemptThreshold"]]
     FlagForTermination -.->|"answered on the inbound hop as"| Ext2[["§2.3: 410 Gone"]]
@@ -728,7 +753,7 @@ visible.
 
 | Flow / site | Hop | Trigger | HTTP request to answer? | Knobs | Key metrics | Signal (when) |
 |---|---|---|---|---|---|---|
-| **registration gate** (shared) | — (connection state) | Connection not usable by the gateway yet | No — answered on whichever inbound hop is waiting | `registrationWaitTimeout` | `wsgw.registration.waits`; `wsgw.registration.timeouts`; `wsgw.registration.awaiting_termination` | 410 via PUSH's inbound hop; connection flagged, closed 1013 |
+| **registration gate** (shared) | — (connection state) | Connection not usable by the gateway yet | No — answered on whichever inbound hop is waiting | `registrationWaitTimeout` | `wsgw.registration.waits`; `wsgw.registration.timeouts`; `wsgw.connections{state="awaiting_termination"}` | 410 via PUSH's inbound hop; connection flagged, closed 1013 |
 | **PUSH** app→client | `app_to_gw` | — (answers only) | Yes — `POST /message/{id}` | — | — | 429; 410; 503+`Retry-After`; 502 |
 | **PUSH** app→client | `gw_to_client` | Delivery exceeds budget (slow client link) | No | `sendLockTimeout`; `sendLockTimeoutCountWindow` / `sendLockTimeoutsPreemptThreshold` (per connection); `sendLockTimeoutPreemptHoldDown` | `wsgw.send_lock.wait`; `wsgw.send_lock.timeouts` | — (surfaces on `app_to_gw`) |
 | **CONNECT** client→app | `client_to_gw` | Too many arrivals, or too many recent failures | Yes — `GET /connect` | `maxInFlightConnects`; `defaultAdmissionHoldDown`; `connectFailureCountWindow` / `connectFailurePreemptThreshold`; `connectPreemptHoldDown` | — (consumes the three below) | 503+`Retry-After` (admission: jittered connect-latency estimate; threshold: jittered rest of the hold-down) |
@@ -776,10 +801,12 @@ Handled by `WsConnection.waitForSessionRegistrationToComplete`, reached through
   it at the one place the flag is set, inside `registrationLock`. This is the
   same per-connection-vs-per-push distinction `wsgw.registration.waits` already
   makes. It matters because `waitForSessionRegistrationToComplete` throws
-  `ConnectionGone` on *every subsequent* push to an already-flagged connection
-  while `register` decrements `wsgw.registration.awaiting_termination` once — counting the exception gave N
-  increments against one decrement, drifting the gauge upward and over-feeding
-  the circuit breaker. Pinned by
+  `ConnectionGone` on *every subsequent* push to an already-flagged connection —
+  counting the exception counted one flagged connection N times over, inflating
+  `wsgw.registration.timeouts` and over-feeding the circuit breaker. The flagged
+  *population* is not tallied at all any more: `wsgw.connections` derives each
+  state from the connection itself, so it has no increment/decrement pair that
+  could drift away from the registry it describes. Pinned by
   `ConnectTest.flaggedConnectionCountedOncePerConnection`.
 
 ### 5.2 PUSH
@@ -962,7 +989,7 @@ touch.
 | §2.2 `registrationWaitTimeout` (gate budget) | `Timeouts.registrationWaitTimeout()`; value from `Configuration.getRegistrationWaitTimeout()` | `[partial]` | hardcoded 10s, no settable field; structurally independent of `sendLockTimeout` |
 | §2.2 `wsgw.registration.waits` | `WsConnections.push` (`registrationWaits` counter, `flow=connect`/`site=registration`) | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable |
 | §2.2 `wsgw.registration.timeouts` | `WsConnection.waitForSessionRegistrationToComplete` (tombstone via `registrationTooLate`, which runs `onRegistrationTimeout`) + `WsConnection.registerSession` (1013 close on late arrival) + `WsConnections.onRegistrationTimeout` (`registrationTimeouts` counter) | `[partial]` | recorded into `SimpleMeterRegistry` with no exporter → not scrapeable |
-| §2.2 `wsgw.registration.awaiting_termination` | `WsConnections` (`Gauge` over `AtomicInteger`); incremented in `onRegistrationTimeout` (the flagging), decremented in `register` (tombstone path) | `[partial]` | not scrapeable; one increment to one decrement, so the gauge returns to zero (§5.1) |
+| §2.1/§2.2 `wsgw.connections` (tag `state`) | `WsConnections.Meters.create` (one `Gauge` per `WsConnection.State`, over the `conns` map); the state itself in `WsConnection.state()`, read from `registeredSession` and `registrationTooLate` | `[partial]` | not scrapeable; derived rather than tallied, so the states cannot drift apart from the registry (§5.1) |
 | §2.2 close code 1013 on termination | `WsConnection.registerSession` | `[implemented]` | |
 | §2.3.1 signal 410 (connection flagged) | `MessageRequest.doFilter` (`ConnectionGone` → 410) | `[implemented]` | |
 | §2.3.1 signal 429 (send-lock timeout) | `MessageRequest.doFilter` (`SendLockWaitTimedOut` → 429) | `[partial]` | no `Retry-After` |

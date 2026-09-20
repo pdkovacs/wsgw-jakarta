@@ -25,6 +25,29 @@ class WsConnection {
 
     }
 
+    /**
+     * Where this connection sits in its registration lifecycle. The three values are mutually
+     * exclusive and exhaustive, so summing the connections in each gives the size of the registry
+     * -- which is what makes them tag values on one gauge rather than three gauges.
+     */
+    enum State {
+        AWAITING_REGISTRATION("awaiting_registration"),
+        REGISTERED("registered"),
+        AWAITING_TERMINATION("awaiting_termination");
+
+        // Spelled out rather than derived from name(), so that renaming a constant cannot
+        // silently rename a published metric's tag value (docs/backpressure.md 2.2).
+        private final String tagValue;
+
+        State(String tagValue) {
+            this.tagValue = tagValue;
+        }
+
+        String tagValue() {
+            return tagValue;
+        }
+    }
+
     private final Metrics metrics;
     private final CircuitBreaker sendLockTimeoutBreaker;
     // Called exactly once, by the thread that flags this connection for termination. Every push
@@ -36,7 +59,9 @@ class WsConnection {
     private final ReentrantLock sendLock;
 
     private volatile Session registeredSession;
-    private boolean registrationTooLate = false;
+    // Written only under registrationLock, but read by the metrics scrape thread, which holds
+    // nothing -- volatile is what makes that read defined rather than merely usually right.
+    private volatile boolean registrationTooLate = false;
 
     public WsConnection(
             String connectionId,
@@ -48,6 +73,17 @@ class WsConnection {
         this.metrics = metrics;
         this.sendLockTimeoutBreaker = sendLockTimeoutBreaker;
         this.onRegistrationTimeout = onRegistrationTimeout;
+    }
+
+    // Derived, not tallied: the state is whatever the two fields below say it is, so there is no
+    // increment/decrement pair that could drift away from the registry it claims to describe.
+    // registeredSession is checked first because registerSession only ever sets it when the
+    // connection was not already flagged, so the two can never both be true.
+    State state() {
+        if (registeredSession != null) {
+            return State.REGISTERED;
+        }
+        return registrationTooLate ? State.AWAITING_TERMINATION : State.AWAITING_REGISTRATION;
     }
 
     public void closeSession() throws IOException {

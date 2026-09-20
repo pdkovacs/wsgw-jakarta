@@ -155,7 +155,7 @@ public class ConnectTest {
 
         assertThat(underTest.registrationWaits()).isEqualTo(0);
         assertThat(underTest.registrationTimeouts()).isEqualTo(1);
-        assertThat(underTest.registrationAwaitingTermination()).isEqualTo(1);
+        assertThat(underTest.connectionsAwaitingTermination()).isEqualTo(1);
         verifyNoMoreInteractions(mockedBasicRemote);
         verifyNoMoreInteractions(mockedSession);
 
@@ -165,7 +165,7 @@ public class ConnectTest {
         verify(mockedSession, times(1)).close(captor.capture());
         assertThat(captor.getValue().getCloseCode()).isEqualTo(CloseReason.CloseCodes.TRY_AGAIN_LATER);
         assertThat(captor.getValue().getReasonPhrase()).isEqualTo("registration too late");
-        assertThat(underTest.registrationAwaitingTermination()).isEqualTo(0);
+        assertThat(underTest.connectionsAwaitingTermination()).isEqualTo(0);
         verify(circuitBreaker, times(1)).increment();
     }
 
@@ -193,14 +193,40 @@ public class ConnectTest {
         assertThat(underTest.registrationTimeouts())
                 .as("one connection flagged, however many pushes hit it")
                 .isEqualTo(1);
-        assertThat(underTest.registrationAwaitingTermination()).isEqualTo(1);
+        assertThat(underTest.connectionsAwaitingTermination()).isEqualTo(1);
         verify(circuitBreaker, times(1)).increment();
 
-        // ...and the late registration's single decrement still balances the gauge.
+        // ...and the flagged connection is counted once however many pushes hit it, because the
+        // gauge reads the registry rather than tallying the pushes that discovered the flag.
         underTest.connections().register(testConnectionId, mockedSession);
-        assertThat(underTest.registrationAwaitingTermination())
-                .as("the gauge returns to zero, so it did not drift upward")
+        assertThat(underTest.connectionsAwaitingTermination())
+                .as("the terminated connection leaves the registry, so the gauge returns to zero")
                 .isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("wsgw.connections files each registry entry under exactly one state")
+    void connectionsGaugePartitionsTheRegistry() {
+        var circuitBreaker = mock(CircuitBreaker.class);
+        var underTest = newConnections(
+                Duration.ZERO, WAIT_FOR_SENDMESSAGE_DESATURATION, circuitBreaker, WsConnectionsFixture::createCircuitBreaker);
+
+        assertThat(underTest.connectionsRegistered()).isEqualTo(0);
+        assertThat(underTest.connectionsAwaitingTermination()).isEqualTo(0);
+
+        underTest.connections().register("registered-conn", newMockedSession());
+
+        // A push whose registration never lands: flagged, and still in the registry until the
+        // framework hands the session over. The two connections are in the registry together,
+        // one per state -- which is the property that lets the states be summed.
+        var e = Assertions.catchThrowable(() -> underTest.connections().push("flagged-conn", "some message"));
+        assertThat(e).isInstanceOf(ConnectionGone.class);
+
+        assertThat(underTest.connectionsRegistered()).isEqualTo(1);
+        assertThat(underTest.connectionsAwaitingTermination()).isEqualTo(1);
+        // Not asserted non-zero anywhere: a connection sits in awaiting_registration only while a
+        // push is parked at the gate, and the parked push is the thread that would do the asserting.
+        assertThat(underTest.connectionsAwaitingRegistration()).isEqualTo(0);
     }
 
     // --- helpers ---
