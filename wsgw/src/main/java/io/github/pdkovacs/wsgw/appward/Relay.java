@@ -15,13 +15,15 @@ public class Relay {
     private final Map<String, List<String>> requestHeaders;
     private final String connectionId;
     private final Dispatcher dispatcher;
+    private final Runnable done;
 
-    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, Dispatcher.QueueParams queueParams) {
+    Relay(Request appwardRequest, Map<String, List<String>> requestHeaders, String connectionId, Dispatcher.QueueParams queueParams, Runnable done) {
         this.appwardRequest = appwardRequest;
         this.requestHeaders = requestHeaders;
         this.connectionId = connectionId;
-        dispatcher = new Dispatcher(queueParams, error -> logger.error("Error sending message", error));
+        dispatcher = new Dispatcher(queueParams, error -> logger.error("Error sending message", error), done);
         dispatcher.start(connectionId);
+        this.done = done;
     }
 
     public void sendMessage(String msg) {
@@ -35,10 +37,6 @@ public class Relay {
         });
         // TODO: This may need to be changed to a call to a method on `dispatcher` like `close` or `closeQueue`
         dispatcher.accept(Dispatcher.POISON);
-    }
-
-    public boolean isDefunct() {
-        return dispatcher.isDefunct();
     }
 
     public void join(Duration timeout) {

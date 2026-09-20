@@ -98,7 +98,7 @@ public class Wsgw {
         ctx.addServletContainerInitializer(new WsSci() {
             @Override
             public void onStartup(Set<Class<?>> clazzes, ServletContext ctx) throws ServletException {
-                ctx.addListener(new WsListener(appwardRelays, wsConnections));
+                ctx.addListener(new WsListener(appwardRelays, wsConnections, wsConnections));
                 super.onStartup(clazzes, ctx);
             }
         }, null);

@@ -11,11 +11,13 @@ import jakarta.websocket.server.ServerEndpointConfig;
 public class WsListener implements ServletContextListener {
 
     final private Relays appwardRelay;
-    final private SessionRegistrar registerSession;
+    final private SessionRegistrar sessionRegistrar;
+    private final Disconnector disconnector;
 
-    public WsListener(Relays appwardRelay, SessionRegistrar registerSession) {
+    public WsListener(Relays appwardRelay, SessionRegistrar sessionRegistrar, Disconnector disconnector) {
         this.appwardRelay = appwardRelay;
-        this.registerSession = registerSession;
+        this.sessionRegistrar = sessionRegistrar;
+        this.disconnector = disconnector;
     }
 
     @Override
@@ -24,7 +26,7 @@ public class WsListener implements ServletContextListener {
                 .getAttribute("jakarta.websocket.server.ServerContainer"); // set by WsSci
         try {
             sc.addEndpoint(ServerEndpointConfig.Builder.create(Endpoint.class, WsgwPaths.CONNECT_FROM_CLIENT)
-                    .configurator(new EndpointConfigurator(appwardRelay, registerSession))
+                    .configurator(new EndpointConfigurator(appwardRelay, sessionRegistrar, disconnector))
                     .build());
         } catch (DeploymentException ex) {
             throw new RuntimeException(ex);

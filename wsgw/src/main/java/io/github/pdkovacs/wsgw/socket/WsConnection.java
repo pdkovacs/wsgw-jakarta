@@ -17,7 +17,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-class WsConnection {
+public class WsConnection {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnection.class);
 
@@ -30,7 +30,7 @@ class WsConnection {
      * exclusive and exhaustive, so summing the connections in each gives the size of the registry
      * -- which is what makes them tag values on one gauge rather than three gauges.
      */
-    enum State {
+    public enum State {
         AWAITING_REGISTRATION("awaiting_registration"),
         REGISTERED("registered"),
         AWAITING_TERMINATION("awaiting_termination");
@@ -43,7 +43,7 @@ class WsConnection {
             this.tagValue = tagValue;
         }
 
-        String tagValue() {
+        public String tagValue() {
             return tagValue;
         }
     }

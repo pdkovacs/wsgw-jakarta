@@ -36,7 +36,10 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
             // Session, which a connection awaiting registration does not yet have.
             for (var state : WsConnection.State.values()) {
                 Gauge.builder("wsgw.connections", conns,
-                                m -> m.values().stream().filter(c -> c.state() == state).count())
+                                m -> {
+                                    logger.debug("wsgw.connections count: {}", m.values());
+                                    return m.values().stream().filter(c -> c.state() == state).count();
+                                })
                         .tag("state", state.tagValue())
                         .register(registry);
             }
@@ -139,6 +142,7 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
 
     public void disconnect(String connectionId) {
         var mLogger = logger.with("method", "disconnect").with("connectionId", connectionId);
+        mLogger.debug("Disconnecting connection with id " + connectionId);
         var conn = conns.remove(connectionId);
         if (conn == null) {
             // Expected for a session refused as registered too late: register() has already
