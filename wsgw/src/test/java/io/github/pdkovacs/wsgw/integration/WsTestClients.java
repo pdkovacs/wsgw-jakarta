@@ -8,7 +8,6 @@ import org.assertj.core.api.Assertions;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.io.IOException;
@@ -26,6 +25,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientEndpoint testClientEndpoint,
                            WsWebSocketContainer container, Session websocketClientSession,
