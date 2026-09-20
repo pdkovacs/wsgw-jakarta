@@ -31,11 +31,13 @@ public class Dispatcher {
     private final BlockingQueue<Dispatch> queue;
     private final ErrorChannel errorChannel;
     private final Duration relayEnqueueTimeout;
+    private final Runnable done;
 
-    Dispatcher(QueueParams queueParams, ErrorChannel errorChannel) {
+    Dispatcher(QueueParams queueParams, ErrorChannel errorChannel, Runnable done) {
         queue = new LinkedBlockingQueue<>(queueParams.queueSize);
         this.errorChannel = errorChannel;
         this.relayEnqueueTimeout = queueParams.relayEnqueueTimeout;
+        this.done = done;
     }
 
     int queueSize() {
@@ -58,21 +60,25 @@ public class Dispatcher {
     private void run() {
         var mLogger = logger.with("method", "run").with("thread", Thread.currentThread().getName());
         mLogger.info("Running");
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                var dispatch = queue.take();
-                if (dispatch == POISON) {
-                    mLogger.debug("POISON received");
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    var dispatch = queue.take();
+                    if (dispatch == POISON) {
+                        mLogger.debug("POISON received");
+                        break;
+                    }
+                    dispatch.send();
+                } catch (InterruptedException e) {
+                    mLogger.debug("Dispatcher got interrupted");
                     break;
+                } catch (Throwable t) {
+                    mLogger.error("Dispatcher got error", t);
+                    errorChannel.report(t);
                 }
-                dispatch.send();
-            } catch (InterruptedException e) {
-                mLogger.debug("Dispatcher got interrupted");
-                break;
-            } catch (Throwable t) {
-                mLogger.error("Dispatcher got error", t);
-                errorChannel.report(t);
             }
+        } finally {
+            done.run();
         }
         mLogger.info("Finishing... interrupted: {}", Thread.currentThread().isInterrupted());
     }
@@ -83,10 +89,6 @@ public class Dispatcher {
         } catch (InterruptedException e) {
             logger.info("{} interrupted in join", workerThread.getName());
         }
-    }
-
-    public boolean isDefunct() {
-        return !workerThread.isAlive();
     }
 
     @Override

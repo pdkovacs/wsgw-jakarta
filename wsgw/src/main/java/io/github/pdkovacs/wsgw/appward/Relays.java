@@ -26,7 +26,9 @@ public class Relays {
     }
 
     public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams);
+        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams, () -> {
+            relays.remove(connectionId);
+        });
         relays.put(connectionId, relay);
         return relay;
     }
@@ -35,16 +37,6 @@ public class Relays {
 
     public Relay get(String connectionId) {   // retire from registry, hand it back
         return relays.get(connectionId);
-    }
-
-    public void scanForRemoveDefunctAsync() {
-        Thread.ofVirtual().start(() -> {
-            for (var relay : relays.entrySet().stream().toList()) {
-                if (relay.getValue().isDefunct()) {
-                    relays.remove(relay.getKey());
-                }
-            }
-        });
     }
 
     public void stop() {

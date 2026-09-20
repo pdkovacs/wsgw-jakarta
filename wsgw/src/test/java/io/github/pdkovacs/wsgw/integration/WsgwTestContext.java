@@ -6,6 +6,7 @@ import io.github.pdkovacs.wsgw.appward.Request;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.github.pdkovacs.wsgw.socket.WsConnection.State;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -17,10 +18,15 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class WsgwTestContext {
 
+    public static final Duration SETTLE_TIMEOUT = Duration.ofSeconds(2);
     private static final CtxLogger logger = CtxLogger.of(WsgwTestContext.class);
+    private static final Duration POLL_INTERVAL = Duration.ofMillis(10);
     public static final int APPWARD_DISPATCHER_QUEUE_SIZE = 1;
     public static final Duration DEFAULT_PUSH_REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
@@ -36,6 +42,10 @@ public class WsgwTestContext {
 
         Timer connectLatency() {
             return registry.get("wsgw.connect.latency").tag("flow", "connect").tag("site", "gw_to_app").timer();
+        }
+
+        int connections(State state) {
+            return (int) registry.get("wsgw.connections").tag("state", state.tagValue()).gauge().value();
         }
 
         int relayBufferConnections(String fill) {
@@ -102,8 +112,8 @@ public class WsgwTestContext {
         return wsgwServerName;
     }
 
-    WebsocketTestClient connectClient(CountDownLatch connectionEstablished) throws Exception {
-        return wsTestClients.connect(
+    void connectClient(CountDownLatch connectionEstablished) throws Exception {
+        wsTestClients.connect(
                 wsgwServerName,
                 fakeAppConfig.getApiKey(),
                 connectionEstablished
@@ -116,5 +126,51 @@ public class WsgwTestContext {
 
     public List<BlockingQueue<Message>> getAppInboxes() {
         return this.fakeApp.getInboxes();
+    }
+
+    List<Integer> state() {
+        return List.of(
+                meters.connections(State.AWAITING_REGISTRATION),
+                meters.connections(State.REGISTERED),
+                meters.connections(State.AWAITING_TERMINATION));
+    }
+
+    void assertRegisteredConnectionCountEventually(int registered, String description) throws InterruptedException {
+        int awaitingRegistration = 0;
+        int awaitingTermination = 0;
+        var expected = List.of(awaitingRegistration, registered, awaitingTermination);
+        assertEventually(this::state, expected, SETTLE_TIMEOUT, description);
+    }
+
+    List<Integer> bands() {
+        return List.of(
+                meters.relayBufferConnections("empty"),
+                meters.relayBufferConnections("low"),
+                meters.relayBufferConnections("high"),
+                meters.relayBufferConnections("full"));
+    }
+
+    // A frame lands in the gateway's buffer some time after sendText returns, so poll the bands until
+    // they settle rather than asserting on a single reading.
+    void assertBandsEventually(int empty, int low, int high, int full) throws InterruptedException {
+        var description = "relay buffer connections by fill band [empty, low, high, full]";
+        assertBandsEventually(empty, low, high, full, description);
+    }
+
+    void assertBandsEventually(int empty, int low, int high, int full, String description) throws InterruptedException {
+        var expected = List.of(empty, low, high, full);
+        assertEventually(this::bands, expected, SETTLE_TIMEOUT, description);
+    }
+
+    @SuppressWarnings("BusyWait")
+    public static <T> void assertEventually(Supplier<T> actual, T expected, Duration timeout, String description)
+            throws InterruptedException {
+        var deadline = System.nanoTime() + timeout.toNanos();
+        var last = actual.get();
+        while (!Objects.equals(last, expected) && System.nanoTime() < deadline) {
+            Thread.sleep(POLL_INTERVAL.toMillis());
+            last = actual.get();
+        }
+        assertThat(last).as(description).isEqualTo(expected);
     }
 }

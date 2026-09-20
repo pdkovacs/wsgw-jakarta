@@ -57,6 +57,31 @@ public class DisconnectIT {
     }
 
     @Test
+    void clientSessionCloseRemovesConnection(@TempDir Path tempDir) throws Exception {
+        String wsgwServerName = wsgwTestContext.getWsgwServerName();
+        wsgwTestContext.assertBandsEventually(0, 0, 0, 0, "initial no connections");
+        wsgwTestContext.assertRegisteredConnectionCountEventually(0, "initial no connections");
+        String connId1 = this.wsgwTestContext.connectionIdGeneratorMock.roll();
+        var wsTestClient1 = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
+        wsgwTestContext.assertRegisteredConnectionCountEventually(1, "initial one connection");
+        wsgwTestContext.assertBandsEventually(1, 0, 0, 0, "initial one connection");
+        String connId2 = this.wsgwTestContext.connectionIdGeneratorMock.roll();
+        var wsTestClient2 = wsgwTestContext.wsTestClients.connect(wsgwServerName, wsgwTestContext.fakeAppConfig.getApiKey());
+        wsgwTestContext.assertRegisteredConnectionCountEventually(2, "initial two connections");
+        wsgwTestContext.assertBandsEventually(2, 0, 0, 0, "initial two connections");
+
+        wsTestClient1.closeSession();
+
+        wsgwTestContext.assertRegisteredConnectionCountEventually(1, "one connection left");
+        wsgwTestContext.assertBandsEventually(1,0, 0, 0, "one connection left");
+
+        wsTestClient2.closeSession();
+
+        wsgwTestContext.assertRegisteredConnectionCountEventually(0, "no connections left");
+        wsgwTestContext.assertBandsEventually(0,0, 0, 0, "no connections left");
+    }
+
+    @Test
     void appDisconnectRequestClosesClientSession(@TempDir Path tempDir) throws Exception {
         String wsgwServerName = wsgwTestContext.getWsgwServerName();
 

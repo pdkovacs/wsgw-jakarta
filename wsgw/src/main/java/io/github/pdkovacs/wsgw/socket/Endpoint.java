@@ -15,10 +15,12 @@ public class Endpoint extends jakarta.websocket.Endpoint {
     private static final CtxLogger logger = CtxLogger.of(Endpoint.class);
 
     private final SessionRegistrar sessionRegistrar;
+    private final Disconnector disconnector;
     private final Relays appwardRelays; // ← constructor-injected (app scope)
 
-    public Endpoint(SessionRegistrar sessionRegistrar, Relays appwardRelays) {
+    public Endpoint(SessionRegistrar sessionRegistrar, Disconnector disconnector, Relays appwardRelays) {
         this.sessionRegistrar = sessionRegistrar;
+        this.disconnector = disconnector;
         this.appwardRelays = appwardRelays;
     }
 
@@ -43,7 +45,6 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         Relay relay = appwardRelays.createRelay(connectHeaders, connectionId);
 
         session.addMessageHandler(String.class, msg -> relay.sendMessage(msg));
-        appwardRelays.scanForRemoveDefunctAsync();
         log.debug("onOpen completed");
     }
 
@@ -65,6 +66,8 @@ public class Endpoint extends jakarta.websocket.Endpoint {
             }
         } catch (Exception e) {
             logger.error("Error while disconnecting at the app", e);
+        } finally {
+            disconnector.disconnect(connectionId);
         }
     }
 }

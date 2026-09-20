@@ -49,8 +49,22 @@ public final class WsConnectionsFixture {
             return (int) registry.get("wsgw.registration.timeouts").tag("flow", "connect").tag("site", "registration").counter().count();
         }
 
-        public int registrationAwaitingTermination() {
-            return (int) registry.get("wsgw.registration.awaiting_termination").tag("flow", "connect").tag("site", "registration").gauge().value();
+        // --- the connection registry, by lifecycle state (no flow/site: not a congestion meter) ---
+
+        public int connectionsAwaitingRegistration() {
+            return connectionsInState("awaiting_registration");
+        }
+
+        public int connectionsRegistered() {
+            return connectionsInState("registered");
+        }
+
+        public int connectionsAwaitingTermination() {
+            return connectionsInState("awaiting_termination");
+        }
+
+        private int connectionsInState(String state) {
+            return (int) registry.get("wsgw.connections").tag("state", state).gauge().value();
         }
 
         // --- flow=push, site=gw_to_client (asserted on by PushTest) ---

@@ -12,7 +12,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -36,7 +35,6 @@ public class RelayIT {
 
     // Large enough for every fill band to be reachable: low = 1..2, high = 3, full = 4.
     private static final int BUFFER_BOUND = 4;
-    private static final Duration SETTLE_TIMEOUT = Duration.ofSeconds(2);
 
     final WsgwTestContext wsgwTestContext = new WsgwTestContext();
 
@@ -113,7 +111,7 @@ public class RelayIT {
                 connect();
             }
 
-            assertBandsEventually(connectionCount, 0, 0, 0);
+            wsgwTestContext.assertBandsEventually(connectionCount, 0, 0, 0);
         }
 
         @Test
@@ -125,18 +123,18 @@ public class RelayIT {
                 sendToApp(client);
                 stall.awaitInFlight();
                 // The drain took that frame off the buffer before blocking on the app, so it is not counted.
-                assertBandsEventually(1, 0, 0, 0);
+                wsgwTestContext.assertBandsEventually(1, 0, 0, 0);
 
                 sendToApp(client);
-                assertBandsEventually(0, 1, 0, 0);
+                wsgwTestContext.assertBandsEventually(0, 1, 0, 0);
 
                 // Depth 2 is BUFFER_BOUND / 2, still low: not observable as a band change, so no assertion here.
                 sendToApp(client);
                 sendToApp(client);
-                assertBandsEventually(0, 0, 1, 0);
+                wsgwTestContext.assertBandsEventually(0, 0, 1, 0);
 
                 sendToApp(client);
-                assertBandsEventually(0, 0, 0, 1);
+                wsgwTestContext.assertBandsEventually(0, 0, 0, 1);
             } finally {
                 stall.release();
             }
@@ -150,7 +148,7 @@ public class RelayIT {
             var stall = stall(stalledClient);
             try {
                 fillToFull(stalledClient, stall);
-                assertBandsEventually(1, 0, 0, 1);
+                wsgwTestContext.assertBandsEventually(1, 0, 0, 1);
             } finally {
                 stall.release();
             }
@@ -163,12 +161,12 @@ public class RelayIT {
             var stall = stall(client);
             try {
                 fillToFull(client, stall);
-                assertBandsEventually(0, 0, 0, 1);
+                wsgwTestContext.assertBandsEventually(0, 0, 0, 1);
             } finally {
                 stall.release();
             }
 
-            assertBandsEventually(1, 0, 0, 0);
+            wsgwTestContext.assertBandsEventually(1, 0, 0, 0);
         }
     }
 
@@ -215,7 +213,7 @@ public class RelayIT {
         }
 
         void awaitInFlight() throws InterruptedException {
-            assertThat(inFlight.await(SETTLE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+            assertThat(inFlight.await(WsgwTestContext.SETTLE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
                     .as("a relayed message reached the stalled app")
                     .isTrue();
         }
@@ -246,7 +244,7 @@ public class RelayIT {
     // A precondition, not the assertion under test: the fill bands are the only outside view of whether
     // the frames have actually landed in the buffer. Assumes the stalled connection is the only one.
     private void awaitBufferFull() throws InterruptedException {
-        assertBandsEventually(0, 0, 0, 1);
+        wsgwTestContext.assertBandsEventually(0, 0, 0, 1);
     }
 
     private WebsocketTestClient connect() throws Exception {
@@ -262,37 +260,11 @@ public class RelayIT {
     }
 
     private String nextTextAtApp(WebsocketTestClient client) throws InterruptedException {
-        var received = wsgwTestContext.getAppInbox(client.connectionId()).poll(SETTLE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        var received = wsgwTestContext.getAppInbox(client.connectionId()).poll(WsgwTestContext.SETTLE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         return switch (received) {
             case Message.Text(String text) -> text;
             case Message.EndOfStream _ -> fail("Expected a relayed message, got EndOfStream");
-            case null -> fail("No relayed message reached the app within %s".formatted(SETTLE_TIMEOUT));
+            case null -> fail("No relayed message reached the app within %s".formatted(WsgwTestContext.SETTLE_TIMEOUT));
         };
-    }
-
-    // A frame lands in the gateway's buffer some time after sendText returns, so poll the bands until
-    // they settle rather than asserting on a single reading.
-    @SuppressWarnings("BusyWait")
-    private void assertBandsEventually(int empty, int low, int high, int full) throws InterruptedException {
-        var expected = List.of(empty, low, high, full);
-        var deadline = System.nanoTime() + SETTLE_TIMEOUT.toNanos();
-        List<Integer> actual;
-        do {
-            actual = bands();
-            if (actual.equals(expected)) {
-                return;
-            }
-            Thread.sleep(10);
-        } while (System.nanoTime() < deadline);
-        assertThat(actual).as("relay buffer connections by fill band [empty, low, high, full]").isEqualTo(expected);
-    }
-
-    private List<Integer> bands() {
-        var meters = wsgwTestContext.meters;
-        return List.of(
-                meters.relayBufferConnections("empty"),
-                meters.relayBufferConnections("low"),
-                meters.relayBufferConnections("high"),
-                meters.relayBufferConnections("full"));
     }
 }

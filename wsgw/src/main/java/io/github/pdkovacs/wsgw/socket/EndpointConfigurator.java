@@ -16,10 +16,12 @@ public class EndpointConfigurator extends ServerEndpointConfig.Configurator {
 
     private final Relays appwardRelay;
     private final SessionRegistrar registerSession;
+    private final Disconnector disconnector;
 
-    public EndpointConfigurator(Relays appwardRelay, SessionRegistrar registerSession) {
+    public EndpointConfigurator(Relays appwardRelay, SessionRegistrar registerSession, Disconnector disconnector) {
         this.appwardRelay = appwardRelay;
         this.registerSession = registerSession;
+        this.disconnector = disconnector;
     }
 
     @Override
@@ -40,7 +42,7 @@ public class EndpointConfigurator extends ServerEndpointConfig.Configurator {
             // Endpoint is the only endpoint currently implemented
             throw new IllegalArgumentException("Unexpected endpoint type: " + clazz);
         }
-        T endpointInstance = clazz.cast(new Endpoint(registerSession, appwardRelay));
+        T endpointInstance = clazz.cast(new Endpoint(registerSession, disconnector, appwardRelay));
         logger.debug("getEndpointInstance completed");
         return endpointInstance;
     }
