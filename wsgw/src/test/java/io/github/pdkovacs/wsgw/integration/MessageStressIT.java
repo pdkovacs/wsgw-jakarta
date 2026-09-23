@@ -99,7 +99,7 @@ public class MessageStressIT {
 
         // Phase 1: establish every client connection. Each gets its own HTTP push client on
         // purpose: 1000 separate h2 connections spread the push load across 1000 Tomcat
-        // connection processors. A single shared connection would serialize every push through
+        // connection processors. A single shared h2 connection would serialize every push through
         // one processor (idle cores) and turn one reset into a mass-failure of all its streams.
         try (var connectExec = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int i = 0; i < nrClients; i++) {

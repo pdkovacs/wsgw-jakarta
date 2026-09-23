@@ -41,8 +41,8 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
                 testClientEndpoint, container, websocketClientSession, connectionId, messageInbox, pushRequestTimeout);
     }
 
-    // A connection can die between requests (e.g. Tomcat's idle-connection keep-alive) with
-    // no fault of the message itself; one retry on a fresh connection is standard practice for
+    // An HTTP connection can die between requests (e.g. Tomcat's idle-connection keep-alive) with
+    // no fault of the message itself; one retry on a fresh HTTP connection is standard practice for
     // that class of failure (see java.net.http and Go net/http, which both do this internally
     // for idempotent requests) and is safe here because the client tolerates duplicate delivery
     // (see MessageStressIT.awaitDelivered).
@@ -69,7 +69,7 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
                 if (attempt >= PUSH_ATTEMPTS) {
                     throw e;
                 }
-                tcLoggerr.with("attempt", attempt).warn("Push failed, retrying on a fresh connection", e);
+                tcLoggerr.with("attempt", attempt).warn("Push failed, retrying on a fresh HTTP connection", e);
             }
         }
     }
@@ -78,8 +78,8 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
         websocketClientSession.getBasicRemote().sendText(message);
     }
 
-    // The client hangs up; unlike close(), which tears down the whole test client.
-    public void disconnect() throws IOException {
+    // The client closes its WebSocket session; unlike close(), which tears down the whole test client.
+    public void closeSession() throws IOException {
         websocketClientSession.close();
     }
 
@@ -116,7 +116,7 @@ class WsTestClients implements AutoCloseable {
 
     @Override
     public void close() {
-        logger.debug("Closing all connections...");
+        logger.debug("Closing all test clients...");
         for (var c : clients) {
             try {
                 c.close();

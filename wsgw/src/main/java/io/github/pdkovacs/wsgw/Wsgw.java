@@ -63,7 +63,7 @@ public class Wsgw {
         // handshake are unaffected, since they never send the h2c upgrade tokens.
         //-- Create and configure the HTTP/2 protocol object
         Http2Protocol http2Protocol = new Http2Protocol();
-        //-- Set maximum allowed active streams per connection
+        //-- Set maximum allowed active streams per HTTP/2 connection
         http2Protocol.setMaxConcurrentStreams(2000);
         //-- Set maximum streams allocated to active request threads
         http2Protocol.setMaxConcurrentStreamExecution(2000);

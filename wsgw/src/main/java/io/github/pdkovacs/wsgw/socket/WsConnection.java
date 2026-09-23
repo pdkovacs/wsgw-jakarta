@@ -21,7 +21,9 @@ class WsConnection {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnection.class);
 
-    record Metrics(Timer sendLockWait, Counter sendLockTimeouts) {}
+    record Metrics(Timer sendLockWait, Counter sendLockTimeouts) {
+
+    }
 
     private final Metrics metrics;
     private final CircuitBreaker sendLockTimeoutBreaker;
@@ -48,10 +50,13 @@ class WsConnection {
         this.onRegistrationTimeout = onRegistrationTimeout;
     }
 
-    public void close() throws IOException {
+    public void closeSession() throws IOException {
         if (registeredSession != null) {
             registeredSession.close();
         }
+    }
+
+    public void disconnect() {
         synchronized (registrationLock) {
             registrationLock.notifyAll();
         }

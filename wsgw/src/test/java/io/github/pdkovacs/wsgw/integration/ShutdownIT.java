@@ -31,8 +31,8 @@ public class ShutdownIT {
 
     @Test
     @Timeout(10)
-    void shutdownDisconnectsBothClientAndApp() throws Exception {
-        var tcLogger = logger.with("test-case", "shutdownDisconnectsBothClientAndApp");
+    void shutdownClosesSessionsAndDisconnectsAtApp() throws Exception {
+        var tcLogger = logger.with("test-case", "shutdownClosesSessionsAndDisconnectsAtApp");
 
         var appDisconnectBlocking = new CountDownLatch(2);
         var unblockAppDisconnect = new CountDownLatch(1);

@@ -4,7 +4,6 @@ import io.github.pdkovacs.wsgw.*;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,8 +21,7 @@ public class DisconnectRequest extends HttpFilter {
     }
 
     @Override
-    protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
-            throws IOException, ServletException {
+    protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws IOException {
         logger.debug("/disconnect request {}");
 
         if (!req.getServletPath().startsWith(WsgwPaths.DISCONNECT_FROM_APP)) {
@@ -33,9 +31,9 @@ public class DisconnectRequest extends HttpFilter {
         var connectionId = ConnectionIdExtractor.extract(req.getServletPath(), 1);
         var log = logger.with("connId", connectionId);
         try {
-            sessionCloser.close(connectionId);
+            sessionCloser.closeSession(connectionId);
         } catch (Exception e) {
-            log.warn("Failed to disconnect client", e);
+            log.warn("Failed to close client session", e);
             res.sendError(HttpServletResponse.SC_BAD_GATEWAY, "failed to reach application");
         }
     }

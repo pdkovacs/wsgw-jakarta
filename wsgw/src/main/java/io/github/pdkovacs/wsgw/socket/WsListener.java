@@ -2,7 +2,6 @@ package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Relays;
-import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.websocket.DeploymentException;

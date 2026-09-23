@@ -1,5 +1,20 @@
 # wsgw-jakarta
 
+## Vocabulary: session vs connection
+
+Definitions are in `docs/backpressure.md` §2. Keep them apart in code, test names, comments and
+logs alike:
+
+- **Session**: Tomcat's `jakarta.websocket.Session`, the native WebSocket between client and
+  gateway. Verbs: *open / close*.
+- **Connection**: the gateway's logical client-to-app connection (`WsConnection`, named by a
+  `connectionId`). Verbs: *connect / disconnect*, and *register / deregister* for the registry.
+  Bare "connection" always means this one.
+- Transport connections are always qualified: *HTTP connection*, *h2 connection*, *TCP connection*.
+
+A client closing its session is a session event; the gateway telling the app is a disconnect.
+Name tests after both halves, e.g. `clientSessionCloseDisconnectsAtApp`.
+
 ## Local CI
 
 Every commit kicks off a background build-and-test run of that commit. It is wired through
