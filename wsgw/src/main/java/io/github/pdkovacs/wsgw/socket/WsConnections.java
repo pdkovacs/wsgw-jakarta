@@ -4,7 +4,6 @@ import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.backpressure.SendLockWaitTimedOut;
 import io.github.pdkovacs.wsgw.clientward.MessagePusher;
 import io.github.pdkovacs.wsgw.clientward.SessionCloser;
-import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.*;
 import jakarta.websocket.Session;
@@ -15,7 +14,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
-public class WsConnections implements SessionRegistrar, MessagePusher, SessionCloser {
+public class WsConnections implements SessionRegistrar, MessagePusher, SessionCloser, Disconnector {
 
     private static final CtxLogger logger = CtxLogger.of(WsConnections.class);
 
@@ -125,14 +124,26 @@ public class WsConnections implements SessionRegistrar, MessagePusher, SessionCl
         }
     }
 
-    public void close(String connectionId) throws IOException {
-        var mLogger = logger.with("method", "close").with("connectionId", connectionId);
-        var conn = conns.remove(connectionId);
+    public void closeSession(String connectionId) throws IOException {
+        var mLogger = logger.with("method", "closeSession").with("connectionId", connectionId);
+        var conn = conns.get(connectionId);
         if (conn == null) {
             mLogger.warn("No connection with id {}", connectionId);
             return;
         }
-        conn.close();
+        conn.closeSession();
+    }
+
+    public void disconnect(String connectionId) {
+        var mLogger = logger.with("method", "disconnect").with("connectionId", connectionId);
+        var conn = conns.remove(connectionId);
+        if (conn == null) {
+            // Expected for a session refused as registered too late: register() has already
+            // removed its connection by the time the session's onClose gets here.
+            mLogger.debug("No connection with id {}", connectionId);
+            return;
+        }
+        conn.disconnect();
     }
 
     private WsConnection createWsConnection(String connectionId) {

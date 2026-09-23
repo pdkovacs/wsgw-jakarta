@@ -8,8 +8,6 @@ import jakarta.websocket.server.ServerEndpointConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
-
 import java.util.List;
 
 public class EndpointConfigurator extends ServerEndpointConfig.Configurator {

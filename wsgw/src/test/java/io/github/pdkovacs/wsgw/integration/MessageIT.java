@@ -128,7 +128,7 @@ public class MessageIT {
         if (err != null) {
             throw new AssertionError("send failed under load", err);
         }
-        wsTestClient.disconnect();
+        wsTestClient.closeSession();
 
         assertMessagesToApp(connId, nrMessagesToSend, List.copyOf(messagesSentToApp));
         assertMessagesToClient(wsTestClient, nrMessagesToSend, List.copyOf(messagesSentToClient));
@@ -227,7 +227,7 @@ public class MessageIT {
 
         for (ClientTestCtx clientCtx : processedClientContexts) {
             var wsTestClient = clientCtx.testClient();
-            wsTestClient.disconnect();
+            wsTestClient.closeSession();
 
             var messagesSentToClient = clientCtx.messagesSentToClient();
             var messagesSentToApp = clientCtx.messagesSentToApp();

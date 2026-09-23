@@ -49,7 +49,7 @@ public class Request {
     private final String appBaseUrl;
 
     // One shared client for the whole gateway: its selector, thread pool and
-    // (keep-alive) connection pool are reused across every WS connection, instead
+    // (keep-alive) HTTP connection pool are reused across every connection, instead
     // of being built up and torn down per request.
     public HttpClient appClient;
 

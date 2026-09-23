@@ -2,7 +2,6 @@ package io.github.pdkovacs.wsgw.socket;
 
 import io.github.pdkovacs.wsgw.appward.Relay;
 import io.github.pdkovacs.wsgw.appward.Relays;
-import io.github.pdkovacs.wsgw.clientward.SessionRegistrar;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.websocket.CloseReason;
 import jakarta.websocket.EndpointConfig;
@@ -31,7 +30,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         var connectionId = (String) config.getUserProperties().get("connectionId");
         // a connection-scoped logger; every line below carries connId as a field
         var log = logger.with("connId", connectionId);
-        log.debug("connection opened");
+        log.debug("session opened");
 
         if (!sessionRegistrar.register(connectionId, session)) {
             log.debug("session abandoned");
@@ -57,7 +56,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         mLogger = mLogger.with("connectionId", connectionId);
 
         try {
-            logger.debug("Websocket %s disconnected. Reason: %s".formatted(connectionId, r));
+            logger.debug("Session of connection %s closed. Reason: %s".formatted(connectionId, r));
             var relay = appwardRelays.get(connectionId);
             if (relay != null) {
                 relay.sendDisconnect();
@@ -65,7 +64,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
                 mLogger.warn("Relay for connection not found: {}", connectionId);
             }
         } catch (Exception e) {
-            logger.error("Error while disconnecting", e);
+            logger.error("Error while disconnecting at the app", e);
         }
     }
 }
