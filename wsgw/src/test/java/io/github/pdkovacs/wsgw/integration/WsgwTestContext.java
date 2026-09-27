@@ -7,6 +7,7 @@ import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.socket.WsConnection.State;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,6 +54,12 @@ public class WsgwTestContext {
                     .tag("fill", fill).gauge().value();
         }
 
+        Timer relayEnqueueWaitTime() {
+            return registry.get("wsgw.relay.enqueue.wait")
+                    .tag("flow", "relay")
+                    .tag("site", "client_to_gw").timer();
+        }
+
         int relayEnqueueDrops() {
             return (int) registry.get("wsgw.relay.enqueue.drops")
                     .tag("flow", "relay")
@@ -72,9 +79,10 @@ public class WsgwTestContext {
     private Wsgw wsgw;
     private String wsgwServerName;
 
+    Configuration wsgwConfig;
     FakeAppConfig fakeAppConfig;
 
-    public void setUp(Path tempDir, Configuration wsgwConfig, Duration pushRequestTimeout) throws Exception {
+    void setUp(Path tempDir, Configuration wsgwConfig, Duration pushRequestTimeout) throws Exception {
         Objects.requireNonNull(pushRequestTimeout);
         wsTestClients = new WsTestClients(pushRequestTimeout);
         fakeAppConfig = new FakeAppConfig(tempDir, new String[]{"XKEY", "asdfqwe"});
@@ -82,25 +90,26 @@ public class WsgwTestContext {
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
         wsgwConfig.setAppBaseUrl(appBaseUrl);
         wsgwConfig.setBaseDir(tempDir.resolve("wsgw"));
+        this.wsgwConfig = wsgwConfig;
 
         wsgw = new Wsgw(wsgwConfig, meterRegistry, connectionIdGeneratorMock);
         wsgwServerName = "localhost:%d".formatted(wsgw.start());
         meters = new Meters(meterRegistry);
     }
 
-    public void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
+    void setUp(Path tempDir, Configuration wsgwConfig) throws Exception {
         setUp(tempDir, wsgwConfig, DEFAULT_PUSH_REQUEST_TIMEOUT);
     }
 
 
-    public void setUp(Path tempDir) throws Exception {
+    void setUp(Path tempDir) throws Exception {
         var config = new Configuration();
         config.setBaseDir(tempDir.resolve("wsgw"));
         config.setAppwardDispatcherQueueSize(1);
         setUp(tempDir, config, Duration.ofSeconds(5));
     }
 
-    public void tearDown() throws Exception {
+    void tearDown() throws Exception {
         logger.debug("Tearing down WsgwTestContext");
         wsTestClients.close();
         wsgw.stop();
@@ -108,7 +117,7 @@ public class WsgwTestContext {
         httpClient.close();
     }
 
-    public String getWsgwServerName() {
+    String getWsgwServerName() {
         return wsgwServerName;
     }
 
@@ -120,11 +129,11 @@ public class WsgwTestContext {
         );
     }
 
-    public BlockingQueue<Message> getAppInbox(String connectionId) {
+    BlockingQueue<Message> getAppInbox(String connectionId) {
         return fakeApp.getConnection(connectionId).getMessageInbox();
     }
 
-    public List<BlockingQueue<Message>> getAppInboxes() {
+    List<BlockingQueue<Message>> getAppInboxes() {
         return this.fakeApp.getInboxes();
     }
 

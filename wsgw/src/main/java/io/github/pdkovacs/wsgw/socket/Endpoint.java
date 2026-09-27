@@ -57,7 +57,8 @@ public class Endpoint extends jakarta.websocket.Endpoint {
         mLogger = mLogger.with("connectionId", connectionId);
 
         try {
-            logger.debug("Session of connection %s closed. Reason: %s".formatted(connectionId, r));
+            mLogger.debug("Session of connection %s closed. Reason: %s".formatted(connectionId, r));
+            disconnector.disconnect(connectionId);
             var relay = appwardRelays.get(connectionId);
             if (relay != null) {
                 relay.sendDisconnect();
@@ -65,9 +66,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
                 mLogger.warn("Relay for connection not found: {}", connectionId);
             }
         } catch (Exception e) {
-            logger.error("Error while disconnecting at the app", e);
-        } finally {
-            disconnector.disconnect(connectionId);
+            mLogger.error("Error while disconnecting at the app", e);
         }
     }
 }

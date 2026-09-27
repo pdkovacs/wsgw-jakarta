@@ -4,6 +4,7 @@ import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 
 import java.time.Duration;
 import java.util.List;
@@ -18,22 +19,21 @@ public class Relays {
     private final Request appwardRequest;
     private final ConcurrentHashMap<String, Relay> relays = new ConcurrentHashMap<>();
     private final Dispatcher.QueueParams queueParams;
+    private final Relay.Meters relayMeters;
 
     public Relays(Request appwardRequest, Dispatcher.QueueParams queueParams, MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.queueParams = queueParams;
-        createMeters(meterRegistry);
+        relayMeters = createMeters(meterRegistry);
     }
 
     public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams, () -> {
+        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams, relayMeters, () -> {
             relays.remove(connectionId);
         });
         relays.put(connectionId, relay);
         return relay;
     }
-
-    ;
 
     public Relay get(String connectionId) {   // retire from registry, hand it back
         return relays.get(connectionId);
@@ -50,7 +50,7 @@ public class Relays {
         return appwardRequest;
     }
 
-    private void createMeters(MeterRegistry meterRegistry) {
+    private Relay.Meters createMeters(MeterRegistry meterRegistry) {
 
         BiConsumer<String, IntPredicate> registerFillBand = (band, inBand) -> {
             Gauge.builder("wsgw.relay.buffer.connections", relays,
@@ -65,8 +65,12 @@ public class Relays {
         registerFillBand.accept("high",  d -> d > b / 2 && d < b);
         registerFillBand.accept("full",  d -> d >= b);
 
+        Timer relayEnqueueWaitTime = Timer.builder("wsgw.relay.enqueue.wait")
+                .tag("flow", "relay")
+                .tag("site", "client_to_gw").register(meterRegistry);
         Counter relayEnqueueDrops = Counter.builder("wsgw.relay.enqueue.drops")
                 .tag("flow", "relay")
                 .tag("site", "client_to_gw").register(meterRegistry);
+        return new Relay.Meters(relayEnqueueWaitTime, relayEnqueueDrops);
     }
 }

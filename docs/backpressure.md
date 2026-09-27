@@ -605,9 +605,9 @@ because the buffer is bounded and reading stops.
 
 | Metric | Meaning |
 |---|---|
-| `wsgw.relay.buffer.connections` (tag `fill`) | How many of this gateway instance's connections have their relay buffer in each `fill` band (below); summed across the bands, it is the number of connections. The only early warning for this flow. Watch the share of connections in `high` and `full` rather than the counts themselves: a rising share means drains are falling behind, and its size tells a few connections backing up from most of them. Across gateway instances, sum each band's counts before dividing; averaging per-instance shares gives a nearly empty instance the same weight as a busy one. The metric is sampled, so a buffer that fills up and empties between two samples leaves no trace here; relay enqueue wait time records every wait a full buffer caused. |
-| relay enqueue wait time | How long a frame waited for buffer space, with reading stopped. Recorded when the wait ends, so a stall still in progress shows up at most one relay enqueue timeout late. |
-| relay drop count | Frames dropped because their wait exceeded the relay enqueue timeout. |
+| `wsgw.relay.buffer.connections` (tag `fill`) | How many of this gateway instance's connections have their relay buffer in each `fill` band (below); summed across the bands, it is the number of connections. The only early warning for this flow. Watch the share of connections in `high` and `full` rather than the counts themselves: a rising share means drains are falling behind, and its size tells a few connections backing up from most of them. Across gateway instances, sum each band's counts before dividing; averaging per-instance shares gives a nearly empty instance the same weight as a busy one. The metric is sampled, so a buffer that fills up and empties between two samples leaves no trace here; `wsgw.relay.enqueue.wait` records every wait a full buffer caused. |
+| `wsgw.relay.enqueue.wait` | How long a frame waited for buffer space, with reading stopped. Recorded when the wait ends, so a stall still in progress shows up at most one relay enqueue timeout late. |
+| `wsgw.relay.enqueue.drops` | Frames dropped because their wait exceeded the relay enqueue timeout. |
 
 **Fill bands.** Band edges are fractions of `appwardDispatcherQueueSize`, written
 *b*, so they stay put when the bound is re-tuned. `empty` and `full` are fixed by
@@ -698,8 +698,8 @@ flowchart TD
         KnobQueueSize -->|"buffer full"| ActStopRead(["stop reading the client socket\nwhile the frame waits\n(TCP backpressure)"])
         ActStopRead --> KnobEnqueueTimeout{{"relay enqueue timeout"}}
         KnobEnqueueTimeout -->|"still waiting when\nit expires"| ActDrop
-        ActStopRead --> MetricWait["relay enqueue wait time\n(metric)"]
-        ActDrop --> MetricDrops["relay drop count\n(metric)"]
+        ActStopRead --> MetricWait["wsgw.relay.enqueue.wait\n(metric)"]
+        ActDrop --> MetricDrops["wsgw.relay.enqueue.drops\n(metric)"]
     end
 
     subgraph outbound["outbound hop — gw_to_app"]
@@ -758,7 +758,7 @@ visible.
 | **PUSH** app→client | `gw_to_client` | Delivery exceeds budget (slow client link) | No | `sendLockTimeout`; `sendLockTimeoutCountWindow` / `sendLockTimeoutsPreemptThreshold` (per connection); `sendLockTimeoutPreemptHoldDown` | `wsgw.send_lock.wait`; `wsgw.send_lock.timeouts` | — (surfaces on `app_to_gw`) |
 | **CONNECT** client→app | `client_to_gw` | Too many arrivals, or too many recent failures | Yes — `GET /connect` | `maxInFlightConnects`; `defaultAdmissionHoldDown`; `connectFailureCountWindow` / `connectFailurePreemptThreshold`; `connectPreemptHoldDown` | — (consumes the three below) | 503+`Retry-After` (admission: jittered connect-latency estimate; threshold: jittered rest of the hold-down) |
 | **CONNECT** client→app | `gw_to_app` | App slow to ack | No | `connectWaitTimeout` | `wsgw.connect.inflight`; `wsgw.connect.latency`; `wsgw.connect.timeouts` | — (surfaces on `client_to_gw` as 504) |
-| **RELAY** client→app | `client_to_gw` | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout | `wsgw.relay.buffer.connections`; enqueue wait time; drop count | none over HTTP → stop reading socket → drop frame |
+| **RELAY** client→app | `client_to_gw` | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; enqueue timeout | `wsgw.relay.buffer.connections`; `wsgw.relay.enqueue.wait`; `wsgw.relay.enqueue.drops` | none over HTTP → stop reading socket → drop frame |
 | **RELAY** client→app | `gw_to_app` | App slow to accept a relayed message | No | response deadline; max retries; retry interval; retry budget / window | relay latency; retry, retry-exhaustion & retry-budget drop counts | none over HTTP → retry → drop message |
 
 ---
@@ -945,24 +945,30 @@ draining a bounded `LinkedBlockingQueue`), created via `Relays`.
   `Relay.queueSize()` falls in that band: `empty` at 0, `low` at
   `(0, queueSize/2]`, `high` at `(queueSize/2, queueSize)`, `full` at
   `queueSize` or above.
-- **Relay enqueue timeout, stop-reading and drop** — `[partial]`. When the
-  queue is full, `Dispatcher.accept` calls `queue.offer(dispatch,
-  relayEnqueueTimeout, NANOSECONDS)`, which blocks the WebSocket-receiving thread
-  for up to the timeout; while it blocks, no further frames are read from that
-  connection, which is §2.5.1's stop-reading step. On expiry `offer` returns
-  `false` and `accept` ignores it, so the frame is dropped as §2.5.1 specifies,
-  but silently. The timeout comes from `Configuration.getRelayEnqueueTimeout()`,
-  a settable field, default 30s.
-- **Relay enqueue wait time / relay drop count** — `[planned]`. No meter records
-  the wait, and a drop is neither counted nor logged.
+- **Relay enqueue timeout, stop-reading and drop** — `[implemented]`.
+  `Dispatcher.accept` first tries a plain `queue.offer(dispatch)`; when the
+  queue is full, it calls `queue.offer(dispatch, relayEnqueueTimeout,
+  NANOSECONDS)`, which blocks the WebSocket-receiving thread for up to the
+  timeout; while it blocks, no further frames are read from that connection,
+  which is §2.5.1's stop-reading step. It reports the outcome as an
+  `EnqueueStatus`: `ENQUEUED`, `ENQUEUED_AFTER_WAIT` or `DROPPED`. The timeout
+  comes from `Configuration.getRelayEnqueueTimeout()`, a settable field, default
+  30s.
+- **`wsgw.relay.enqueue.wait` / `wsgw.relay.enqueue.drops`** — `[partial]`.
+  `Relays.createMeters` registers a `Timer` and a `Counter` (`flow=relay`,
+  `site=client_to_gw`); `Relay.dispatcherAccept` records the wait on
+  `ENQUEUED_AFTER_WAIT` and `DROPPED`, and increments the counter on `DROPPED`.
+  A frame that finds space at once records no wait. Both are recorded into the
+  `SimpleMeterRegistry` with no exporter, so they are not scrapeable.
 - **`POISON` exempt from the enqueue timeout** — `[planned]`. On close,
   `Relay.sendDisconnect` enqueues the disconnect notification and then
   `Dispatcher.POISON` through the same `accept`, so on a full queue either can
   time out and be dropped. A dropped disconnect notification leaves a stale
   connection id in the app's index. A dropped `POISON` is worse: nothing else
   stops the dispatcher, so its virtual thread stays blocked in `queue.take()`
-  once the queue drains, and `Relays.scanForRemoveDefunctAsync` never removes the
-  relay, because it removes only relays whose thread has exited. `Relays.stop`
+  once the queue drains, and the relay is never removed from `Relays`, because
+  only the dispatcher's `done` callback, run when its thread exits, removes it.
+  `Relays.stop`
   joins with a 5s timeout and does not interrupt.
 - Relay response deadline, the retry-then-drop escalation behind it, the relay
   retry budget, the deadline header, and the §2.5.2 metrics — `[planned]`. `Request.appClient` carries no per-request
@@ -1008,8 +1014,8 @@ touch.
 | §2.4.2 metric `wsgw.connect.latency` | `ConnectionRequest.doFilter` → `Timer` with `publishPercentiles(ADMISSION_QUANTILE)` (same tags); recorded around `registerWithApp` on both the success and the `HttpTimeoutException` path | `[partial]` | not scrapeable; also the input to the admission `Retry-After`, and its published `quantile` series is per-process, so it does not aggregate across gateway instances |
 | §2.5.1 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
 | §2.5.1 metric connections by relay buffer fill | `Relays.createMeters` → four `wsgw.relay.buffer.connections` `Gauge`s (`flow=relay`/`site=client_to_gw`/`fill=empty\|low\|high\|full`), each over `Relay::queueSize` | `[implemented]` | not scrapeable — no exporter wired yet (§5.5); covered by `RelayIT.assertBandsEventually` |
-| §2.5.1 relay enqueue timeout, stop-reading and drop | `Dispatcher.accept` (`queue.offer` with the timeout); value from `Configuration.getRelayEnqueueTimeout()` | `[partial]` | settable field, default 30s; `offer`'s `false` is ignored, so drops are silent |
-| §2.5.1 metrics relay enqueue wait time / relay drop count | — | `[planned]` | no meter; drops are not logged either |
+| §2.5.1 relay enqueue timeout, stop-reading and drop | `Dispatcher.accept` (`queue.offer` with the timeout, outcome as `EnqueueStatus`); value from `Configuration.getRelayEnqueueTimeout()` | `[implemented]` | settable field, default 30s |
+| §2.5.1 metrics `wsgw.relay.enqueue.wait` / `wsgw.relay.enqueue.drops` | `Relays.createMeters` → `Timer` / `Counter` (`flow=relay`/`site=client_to_gw`); recorded in `Relay.dispatcherAccept` | `[partial]` | not scrapeable; covered by `RelayIT.dropsFramesOnRelayEnqueueTimeout` |
 | §2.5.2 relay response deadline | `Request.appClient` | `[planned]` | no per-request timeout, so nothing bounds a relay the app never answers |
 | §2.5.2 retry-then-drop escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]` | blocked on the deadline row above — there is no expiry event to retry from; also needs the duplicate tolerance stated in §2.5.2 agreed with the app side |
 | §2.5.2 metrics relay retry count / retry-exhaustion count / retry-budget drop count | — | `[planned]` | retry-exhaustion is the flow's distress signal; no meter yet |

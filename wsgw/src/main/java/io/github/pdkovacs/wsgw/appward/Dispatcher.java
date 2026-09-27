@@ -10,6 +10,12 @@ import java.util.concurrent.TimeUnit;
 public class Dispatcher {
     private static final CtxLogger logger = CtxLogger.of(Dispatcher.class);
 
+    enum EnqueueStatus {
+        ENQUEUED,
+        ENQUEUED_AFTER_WAIT,
+        DROPPED
+    }
+
     public record QueueParams(int queueSize, Duration relayEnqueueTimeout) {}
 
     private volatile Thread workerThread;
@@ -44,13 +50,22 @@ public class Dispatcher {
         return queue.size();
     }
 
-    boolean accept(Dispatch dispatch) {
+    EnqueueStatus accept(Dispatch dispatch) {
         try {
-            return queue.offer(dispatch, relayEnqueueTimeout.toNanos(), TimeUnit.NANOSECONDS);
+            if (queue.offer(dispatch)) {
+                return EnqueueStatus.ENQUEUED;
+            }
+            return queue.offer(dispatch, relayEnqueueTimeout.toNanos(), TimeUnit.NANOSECONDS)
+                    ? EnqueueStatus.ENQUEUED_AFTER_WAIT
+                    : EnqueueStatus.DROPPED;
         } catch (InterruptedException e) {
             logger.info("{} interrupted in accept", this);
-            return false;
+            return EnqueueStatus.DROPPED;
         }
+    }
+
+    void blockUntilAccepted(Dispatch dispatch) throws InterruptedException {
+        queue.put(dispatch);
     }
 
     void start(String connectionId) {
