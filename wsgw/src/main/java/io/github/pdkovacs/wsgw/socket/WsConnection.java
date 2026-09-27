@@ -63,7 +63,7 @@ public class WsConnection {
     // nothing -- volatile is what makes that read defined rather than merely usually right.
     private volatile boolean registrationTooLate = false;
 
-    public WsConnection(
+    WsConnection(
             String connectionId,
             Metrics metrics,
             CircuitBreaker sendLockTimeoutBreaker,

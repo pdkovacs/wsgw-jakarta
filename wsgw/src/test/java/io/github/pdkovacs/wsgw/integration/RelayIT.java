@@ -12,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -61,7 +62,7 @@ public class RelayIT {
         void stalledConnectionDoesNotHoldUpOthers() throws Exception {
             var stalledClient = connect();
             var flowingClient = connect();
-            var stall = stall(stalledClient);
+            var stall = stallApp(stalledClient);
             try {
                 sendToApp(stalledClient);
                 stall.awaitInFlight();
@@ -77,7 +78,7 @@ public class RelayIT {
         @DisplayName("frames buffered while the app was stalled all reach it, in order, once it drains again")
         void framesBufferedDuringStallAreDeliveredInOrder() throws Exception {
             var client = connect();
-            var stall = stall(client);
+            var stall = stallApp(client);
             List<String> sent;
             try {
                 sent = fillToFull(client, stall);
@@ -118,7 +119,7 @@ public class RelayIT {
         @DisplayName("a connection whose app side is stalled moves through low, high and full as frames arrive")
         void stalledConnectionFillsThroughTheBands() throws Exception {
             var client = connect();
-            var stall = stall(client);
+            var stall = stallApp(client);
             try {
                 sendToApp(client);
                 stall.awaitInFlight();
@@ -145,7 +146,7 @@ public class RelayIT {
         void stalledAndIdleConnectionsLandInSeparateBands() throws Exception {
             var stalledClient = connect();
             connect();
-            var stall = stall(stalledClient);
+            var stall = stallApp(stalledClient);
             try {
                 fillToFull(stalledClient, stall);
                 wsgwTestContext.assertBandsEventually(1, 0, 0, 1);
@@ -158,7 +159,7 @@ public class RelayIT {
         @DisplayName("once the app drains again, a full connection returns to the empty band")
         void drainedConnectionReturnsToEmpty() throws Exception {
             var client = connect();
-            var stall = stall(client);
+            var stall = stallApp(client);
             try {
                 fillToFull(client, stall);
                 wsgwTestContext.assertBandsEventually(0, 0, 0, 1);
@@ -177,21 +178,69 @@ public class RelayIT {
         public void setUp(@TempDir Path tempDir) throws Exception {
             var config = new Configuration();
             config.setAppwardDispatcherQueueSize(1);
+            config.setRelayEnqueueTimeout(Duration.ofMillis(500));
             wsgwTestContext.setUp(tempDir, config);
         }
 
         @Test
         @DisplayName("drops frame on relayEnqueueTimeout expiry")
         void dropsFramesOnRelayEnqueueTimeout() throws Exception {
+            var messagesSent = new String[2];
             var stalledClient = connect();
-            var stall = stall(stalledClient);
+            var stallApp = stallApp(stalledClient);
             try {
-                sendToApp(stalledClient);
-                stall.awaitInFlight();
-                sendToApp(stalledClient);
+                assertThat(wsgwTestContext.meters.relayEnqueueDrops()).isEqualTo(0);
+                messagesSent[0] = sendToApp(stalledClient); // message1 taken off the queue, but app will stall and won't take it
+                stallApp.awaitInFlight();
+                messagesSent[1] = sendToApp(stalledClient); // message2 stuck in the queue
+                sendToApp(stalledClient); // message3 waiting for queue
+                WsgwTestContext.assertEventually(
+                        () -> wsgwTestContext.meters.relayEnqueueDrops(),
+                        1,
+                        wsgwTestContext.wsgwConfig.getRelayEnqueueTimeout().plus(Duration.ofMillis(500)),
+                        "enqueue drop count is increased on timeout"
+                );
             } finally {
-                stall.release();
+                stallApp.release();
             }
+            stalledClient.closeSession();
+            var appInbox = wsgwTestContext.getAppInbox(stalledClient.connectionId());
+            assertThat(((Message.Text) appInbox.poll(1, TimeUnit.SECONDS)).text()).isEqualTo(messagesSent[0]);
+            assertThat(((Message.Text) appInbox.poll(1, TimeUnit.SECONDS)).text()).isEqualTo(messagesSent[1]);
+            assertThat(appInbox.poll(1, TimeUnit.SECONDS))
+                    .as("2 message out of three reached the app")
+                    .isInstanceOf(Message.EndOfStream.class);
+
+            assertThat(wsgwTestContext.meters.relayEnqueueWaitTime().count())
+                    .as("enqueue wait times of the dropped message is recorded")
+                    .isEqualTo(/* only message3 is waiting for the buffer to drain on enqueue */ 1);
+            assertThat(wsgwTestContext.meters.relayEnqueueWaitTime().max(TimeUnit.MILLISECONDS)).isGreaterThan(500);
+        }
+
+        @Test
+        @DisplayName("drops frame on relayEnqueueTimeout expiry")
+        void eventuallyDeliversDisconnectToApp() throws Exception {
+            var stalledClient = connect();
+            var stallApp = stallApp(stalledClient);
+            try {
+                assertThat(wsgwTestContext.meters.relayEnqueueDrops()).isEqualTo(0);
+                sendToApp(stalledClient); // message1 taken off the queue, but app will stall and won't take it
+                stallApp.awaitInFlight();
+                sendToApp(stalledClient); // message2 stuck in the queue
+                stalledClient.closeSession();
+                var enqueueTimeout = wsgwTestContext.wsgwConfig.getRelayEnqueueTimeout();
+                Thread.sleep(enqueueTimeout.plus(enqueueTimeout));
+            } finally {
+                stallApp.release();
+            }
+
+            var appInbox = wsgwTestContext.getAppInbox(stalledClient.connectionId());
+            appInbox.poll(1, TimeUnit.SECONDS);
+            appInbox.poll(1, TimeUnit.SECONDS);
+            assertThat(appInbox.poll(1, TimeUnit.SECONDS))
+                    .as("2 message out of three reached the app")
+                    .isInstanceOf(Message.EndOfStream.class);
+            wsgwTestContext.assertBandsEventually(0, 0, 0, 0);
         }
     }
 
@@ -223,7 +272,7 @@ public class RelayIT {
         }
     }
 
-    private Stall stall(WebsocketTestClient client) {
+    private Stall stallApp(WebsocketTestClient client) {
         var stall = new Stall(client.connectionId(), new CountDownLatch(1), new CountDownLatch(1));
         wsgwTestContext.fakeAppConfig.setMessageProcessingImpl(stall);
         return stall;
