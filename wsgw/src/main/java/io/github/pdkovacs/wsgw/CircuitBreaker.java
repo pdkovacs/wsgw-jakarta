@@ -1,10 +1,9 @@
 package io.github.pdkovacs.wsgw;
 
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
+import java.time.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.DoubleSupplier;
+import java.util.function.LongSupplier;
 
 public class CircuitBreaker {
 
@@ -22,7 +21,7 @@ public class CircuitBreaker {
     private Instant breakingSince;
 
     public CircuitBreaker(Duration windowSize, int threshold, Duration holdDownPeriod) {
-        this(windowSize, threshold, holdDownPeriod, Clock.systemUTC());
+        this(windowSize, threshold, holdDownPeriod, createMonotonicClock());
     }
 
     public CircuitBreaker(Duration windowSize, int threshold, Duration holdDownPeriod, Clock clock) {
@@ -109,5 +108,11 @@ public class CircuitBreaker {
         }
         double fraction = MIN_JITTER_FRACTION + jitterSource.getAsDouble() * (1 - MIN_JITTER_FRACTION);
         return Duration.ofMillis(Math.round(exact.toMillis() * fraction));
+    }
+
+    private static Clock createMonotonicClock() {
+        LongSupplier nanos = System::nanoTime;
+        return ((InstantSource) () -> Instant.ofEpochSecond(0, nanos.getAsLong()))
+                .withZone(ZoneOffset.UTC);
     }
 }
