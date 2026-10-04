@@ -1,30 +1,36 @@
-# Contributing
+  # Contributing
 
 ## Code conventions
 
-### Grouping members: `// --- label ---` dividers
+### Grouping members: boxed `// --- label ---` dividers
 
-When a class holds members of more than one kind (or more than one flow), group them under
-divider comments. This is the only grouping pattern in the repository; do not use `// region`,
-`// ====` banners or other styles.
+When a class holds members of more than one kind (or more than one flow), group them under a
+boxed divider comment. This is the only grouping pattern in the repository; do not use
+`// region`, unboxed dividers, `// ====` banners or other styles.
 
 ```java
+    // -----------------------------------------------------------------------------
     // --- flow=push, site=gw_to_client (docs/backpressure.md §2.3.2) ---
+    // -----------------------------------------------------------------------------
 
     public Duration getSendLockTimeout() { ... }
 ```
 
 Rules:
 
-- **Form**: `// --- label ---`: three dashes, one space, label, one space, three dashes. Lowercase
-  label unless it contains an identifier or a proper name.
-- **Placement**: on its own line, at the indentation of the members it groups, with a blank line
-  before and after. A group runs until the next divider or the end of the class.
+- **Form**: three comment lines. The top and bottom *rule* lines are `//`, a space and dashes,
+  exactly **80 characters** long (indentation not counted), identical everywhere. The middle
+  *label* line is `// --- label ---` (three dashes, one space, label, one space, three dashes). It
+  is not padded to the rule's width, so renaming a group edits one line only. Keep the label
+  line within 80 characters; shorten the label rather than widen the rule.
+- **Placement**: at the indentation of the members it groups, with a blank line before and after.
+  A group runs until the next divider or the end of the class.
 - **Granularity**: members only (fields, methods, nested types). Don't use dividers inside method
   bodies.
 - **Only when it earns its place**: a class with a single group needs no divider.
 - **Order of groups**: keep the same groups in the same order wherever a class repeats them (e.g.
   a field block followed by the accessor block, as in `Configuration`).
+- **Finding them**: `grep -E '// --- [^-]'` lists the label lines and skips the rule lines.
 
 ### Choosing labels
 

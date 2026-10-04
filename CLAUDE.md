@@ -17,10 +17,11 @@ Name tests after both halves, e.g. `clientSessionCloseDisconnectsAtApp`.
 
 ## Grouping members
 
-Group a class's members with `// --- label ---` dividers, and nothing else (no `// region`, no
-`====` banners). Congestion-related groups are labelled `flow=…, site=…` per
-`docs/backpressure.md` §2.1. Form, placement and label rules are in `CONTRIBUTING.md`; follow
-them in new code and when touching a class that has groups.
+Group a class's members with boxed `// --- label ---` dividers (a fixed 80-character dash rule
+above and below the label line), and nothing else (no `// region`, no unboxed or `====`
+banners). Congestion-related groups are labelled `flow=…, site=…` per `docs/backpressure.md`
+§2.1. Form, placement and label rules are in `CONTRIBUTING.md`; follow them in new code and
+when touching a class that has groups.
 
 ## Local CI
 

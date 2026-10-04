@@ -126,7 +126,9 @@ public class PushTest {
         }
     }
 
+    // -----------------------------------------------------------------------------
     // --- helpers ---
+    // -----------------------------------------------------------------------------
 
     // Blocks the send path on `connectionId` by pushing `blockingMessage`, whose mocked sendText call
     // parks on a latch instead of returning. Returns once the block has actually taken effect, so any
