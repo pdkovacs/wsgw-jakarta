@@ -41,6 +41,9 @@ public class Request {
         return HttpClient.newBuilder()
                 .version(version)
                 .followRedirects(HttpClient.Redirect.NORMAL)
+                // TODO: Longer than both relayResponseTimeout and connectWaitTimeout (10s by default), so the
+                //  request timeout fires first and this never applies. To detect an unreachable app
+                //  sooner than the response timeout, it must be shorter than both.
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();
     }
@@ -65,13 +68,11 @@ public class Request {
         appClient.close();
     }
 
-    public HttpResponse<Void> send(
-            Map<String,
-                    List<String>> reqHeaders,
-            String appPath,
-            String reqMethod,
-            String body,
-            Duration timeout) throws IOException, InterruptedException {
+    public HttpResponse<Void> send(Map<String, List<String>> reqHeaders,
+                                   String appPath,
+                                   String reqMethod,
+                                   String body,
+                                   Duration timeout) throws IOException, InterruptedException {
         log.debug("Building request to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
@@ -82,6 +83,7 @@ public class Request {
         }
 
         if (timeout != null) {
+            log.debug("setting request timeout: {}", timeout);
             requestBuilder.timeout(timeout);
         }
 
@@ -95,8 +97,7 @@ public class Request {
             reqHeaders.get(headerName).forEach(value -> requestBuilder.header(headerName, value));
         }
 
-        log.debug("Sending request... ({})",
-                appPath);
+        log.debug("Sending request... ({})",appPath);
         var response = appClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
         log.debug("Request {} returned {}", appPath, response.statusCode());
         return response;

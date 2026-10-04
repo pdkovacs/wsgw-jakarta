@@ -126,6 +126,9 @@ public class ConnectionRequest extends HttpFilter {
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
             meters.connectLatency.record(Duration.ofNanos(System.nanoTime() - start));
         } catch (HttpTimeoutException timeoutException) {
+            // TODO: This also catches HttpConnectTimeoutException (the app never reached), which
+            //  §2.4.2 says is not a latency: it should be a 502 with no connect.latency sample.
+            //  Whether it should still trip the circuit breaker is undecided.
             meters.connectTimeouts().increment();
             meters.connectLatency.record(Duration.ofNanos(System.nanoTime() - start));
             circuitBreaker.increment();

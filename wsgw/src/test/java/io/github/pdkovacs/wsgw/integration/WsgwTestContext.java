@@ -7,7 +7,6 @@ import io.github.pdkovacs.wsgw.integration.app.fake.FakeApp;
 import io.github.pdkovacs.wsgw.integration.app.fake.FakeAppConfig;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.socket.WsConnection.State;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -60,10 +59,38 @@ public class WsgwTestContext {
                     .tag("site", "client_to_gw").timer();
         }
 
+        Timer relayLatency() {
+            return registry.get("wsgw.relay.latency").tag("flow", "relay").tag("site", "gw_to_app").timer();
+        }
+
         int relayEnqueueDrops() {
             return (int) registry.get("wsgw.relay.enqueue.drops")
                     .tag("flow", "relay")
                     .tag("site", "client_to_gw").counter().count();
+        }
+
+        int relayAttempts() {
+            return (int) registry.get("wsgw.relay.attempts")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
+        }
+
+        int relayRetries() {
+            return (int) registry.get("wsgw.relay.retries")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
+        }
+
+        int retryExhaustions() {
+            return (int) registry.get("wsgw.relay.retry.exhaustions")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
+        }
+
+        int budgetDropCount() {
+            return (int) registry.get("wsgw.relay.retry.budget.drops")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
         }
     }
 
@@ -181,5 +208,20 @@ public class WsgwTestContext {
             last = actual.get();
         }
         assertThat(last).as(description).isEqualTo(expected);
+    }
+
+    public static <T> void assertStaysTrue(Supplier<T> actual, T expected, Duration window, String msg)
+            throws InterruptedException {
+        var end = System.nanoTime() + window.toNanos();
+        do {
+            assertThat(actual.get()).isEqualTo(expected).as(msg);
+            Thread.sleep(25);
+        } while (System.nanoTime() < end);
+    }
+
+    public static <T> void assertEventuallyThenStable(Supplier<T> actual, T expected, Duration timeout,
+                                                      Duration stableFor, String description) throws InterruptedException {
+        assertEventually(actual, expected, timeout, description + " (reached)");
+        assertStaysTrue(actual, expected, stableFor, description + " (stable)");
     }
 }

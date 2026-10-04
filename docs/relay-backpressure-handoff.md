@@ -163,7 +163,7 @@ tier.
 
 ## 7. What that means for §2.5.2's retry
 
-§2.5.2 specifies the retry in **time** (`relay response deadline`,
+§2.5.2 specifies the retry in **time** (`relay response timeout`,
 `max relay retries`, `relay retry interval`) and says nothing about **space**.
 Whether retry #2 reaches a different instance is not written down anywhere.
 
@@ -181,7 +181,7 @@ version treated the L4 case as universal):
   non-idempotent methods, and a request already streamed upstream generally
   cannot be retried. ALB does not retry on timeout either.
 - Outlier detection and readiness probes do eject bad instances, but on
-  tens-of-seconds-to-minutes timescales — far past any relay deadline.
+  tens-of-seconds-to-minutes timescales — far past any relay timeout.
 
 **Recommended topology (agreed).** An L7 frontend that really load-balances per
 request. The reference case is the AWS setup: HTTP/2 from client to ALB,
@@ -285,7 +285,7 @@ Net: today the leak is monotonic.
 
 *Added 09-13.*
 
-**The problem.** When a relay deadline expires, the original request is usually
+**The problem.** When a relay timeout expires, the original request is usually
 still being worked on by the instance that received it. Abandoning it on wsgw's
 side does not stop that work: app servers generally do not interrupt a running
 handler when the client goes away. Retry is re-delivery (§2.5.2), so every retry
@@ -312,7 +312,7 @@ Same mechanism as Envoy's and Finagle's retry budgets.
 Net: retries are allowed where re-routing can help and cut off where they would
 only add load.
 
-### 10.2 Deadline propagation — agreed
+### 10.2 Timeout propagation — agreed
 
 wsgw sends the time remaining with each relay, e.g. `X-Relay-Timeout: 1500` (ms;
 header name not decided). The app notes arrival time + that value as a local
@@ -344,7 +344,7 @@ mechanism decided.
 
 | Mechanism | Needs | Addresses |
 |---|---|---|
-| Deadline header | nothing per message | wasted load: stale work skipped at dequeue |
+| Timeout header | nothing per message | wasted load: stale work skipped at dequeue |
 | Message ID | stable id across retries | correctness: duplicates, out-of-order re-delivery |
 
 ## 11. HTTP/2 on the wsgw→LB hop
@@ -361,7 +361,7 @@ OpenJDK source (current `master`; no local JDK 25 source archive was available):
 - `Stream.cancelImpl` (HTTP/2) calls `sendResetStreamFrame(...)`: only that
   stream is reset (`RST_STREAM`); the connection stays open for the others.
 
-So with HTTP/1.1 toward the LB, each relay deadline expiry costs a connection and
+So with HTTP/1.1 toward the LB, each relay timeout expiry costs a connection and
 a replacement (a TLS handshake in production) — most often under overload, when
 timeouts are frequent.
 
@@ -391,10 +391,10 @@ across many connections would stall only one.
   by Linux default, tunable per route (`ip route … rto_min`).
 - Losses between wsgw and an LB in the same VPC are rare, so the average cost is
   negligible. The effect that matters is **correlation**: a stall makes many
-  relays late at once. With a relay deadline near the minimum RTO, one lost
+  relays late at once. With a relay timeout near the minimum RTO, one lost
   packet can expire a batch of relays together and drain the retry budget on a
   false alarm.
-- It is therefore a constraint on how short the relay deadline may be (and on the
+- It is therefore a constraint on how short the relay timeout may be (and on the
   retry budget window, §12), not an argument against HTTP/2.
 - HTTP/3 (QUIC) removes it; noted for completeness only.
 
@@ -420,15 +420,15 @@ version toward the app is not configurable, and the §2.5.2 relay knobs are not 
   instance, so a dropped message again means "one instance was slow N times".
 - The LB routing policy decides where a retry lands; `least_outstanding_requests`
   steers away from slow instances, round robin does not.
-- Next to the relay response deadline: with HTTP/2 toward the app, do not set it
+- Next to the relay response timeout: with HTTP/2 toward the app, do not set it
   near the TCP minimum retransmission timeout. State the mechanism; give 200 ms
   only as the Linux default, tunable per route.
-- For app authors: the deadline header (§10.2) and re-delivery semantics /
+- For app authors: the timeout header (§10.2) and re-delivery semantics /
   message id (§10.3).
 
 **Internal (implementors, choosing defaults):**
 
-- **Relay response deadline default:** well above the minimum RTO — seconds, not
+- **Relay response timeout default:** well above the minimum RTO — seconds, not
   hundreds of milliseconds.
 - **Retry budget window:** long enough to absorb one head-of-line burst, so that
   a single lost packet does not look like a saturated tier and cut off retries
@@ -451,7 +451,7 @@ None as of 09-13.
 | E | Do the reference apps evict from the index on 410? | **Checked 09-13: no.** They evict on 404 only (§9.1). One item added: the reference apps evict on 410 as well as 404. That alone does not clear connections the client closed: wsgw answers those with 502, and answering 410 instead requires wsgw to tell "closed" from "not yet registered" (§9.1) | Reference apps: done (evict on 404 and 410). No item covers the wsgw side yet |
 | F | `Session` seam for the close, threaded `Endpoint` → `Relays` → `Relay` → `Dispatcher`, plus the send-lock check | **Withdrawn 09-13 under L.** RELAY congestion no longer closes the WebSocket, so there is no close to thread through | Nothing to do |
 | G | Retry budget on relay retries | **Agreed 09-13** (§10.1) | Specified 09-13 in `docs/backpressure.md` §2.5.2; not implemented |
-| H | Deadline header on relays, honoured voluntarily by the app | **Agreed 09-13**; app-contract addition (§10.2) | Specified 09-13 in `docs/backpressure.md` §2.5.2 (header name not decided); not implemented |
+| H | Timeout header on relays, honoured voluntarily by the app | **Agreed 09-13**; app-contract addition (§10.2) | Specified 09-13 in `docs/backpressure.md` §2.5.2 (header name not decided); not implemented |
 | I | Message ID on relays for duplicate detection | **Settled 09-13 under L: no.** Duplicates are allowed; wsgw adds no message ID | Nothing to implement. `docs/backpressure.md` §2.5.2 says duplicates can occur and no message id is attached |
 | J | HTTP/2 on the wsgw→LB hop | **Settled 09-13: yes, as a setting.** The HTTP version toward the app becomes configurable, default `HTTP_2`. The JDK client falls back to HTTP/1.1 on its own when the LB does not offer h2; `HTTP_1_1` forces it (e.g. behind L4). The fallback is silent, so the negotiated version must be visible to operators: logged when it changes, or as a tag on the relay latency metric (not chosen) (§11) | Not implemented: `Request.createHttpClient()` hard-codes `HTTP_1_1`. Operator docs per K |
 | K | Operator and implementor documentation per §12 | **Agreed 09-13** | Not written; depends on the settings existing |
