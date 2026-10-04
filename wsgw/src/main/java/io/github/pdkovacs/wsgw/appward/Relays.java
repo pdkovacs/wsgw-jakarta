@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 
 import java.time.Duration;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,21 +17,32 @@ import java.util.function.IntPredicate;
 public class Relays {
     private static final CtxLogger logger = CtxLogger.of(Relays.class);
 
+    public record RetryParams(int maxRetries, Duration retryInterval, double retryBudget, Duration retryBudgetWindow) {}
+
     private final Request appwardRequest;
     private final ConcurrentHashMap<String, Relay> relays = new ConcurrentHashMap<>();
     private final Dispatcher.QueueParams queueParams;
+    private final Duration responseTimeout;
     private final Relay.Meters relayMeters;
+    private final RetryParams retryParams;
+    private final RetryBudget retryBudget;
 
-    public Relays(Request appwardRequest, Dispatcher.QueueParams queueParams, MeterRegistry meterRegistry) {
+    public Relays(Request appwardRequest, Dispatcher.QueueParams queueParams,
+                  Duration responseTimeout, RetryParams retryParams, MeterRegistry meterRegistry) {
         this.appwardRequest = appwardRequest;
         this.queueParams = queueParams;
-        relayMeters = createMeters(meterRegistry);
+        this.responseTimeout = responseTimeout;
+        this.retryParams = retryParams;
+        relayMeters = createRelayMeters(meterRegistry);
+        retryBudget = createRetryBudget(retryParams, meterRegistry);
     }
 
     public Relay createRelay(Map<String, List<String>> requestHeaders, String connectionId) {
-        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams, relayMeters, () -> {
-            relays.remove(connectionId);
-        });
+        var relay = new Relay(appwardRequest, requestHeaders, connectionId, queueParams, responseTimeout,
+                new Relay.RetryContext(retryParams.maxRetries, retryParams.retryInterval, retryBudget),
+                relayMeters, () -> {
+                    relays.remove(connectionId);
+                });
         relays.put(connectionId, relay);
         return relay;
     }
@@ -50,7 +62,7 @@ public class Relays {
         return appwardRequest;
     }
 
-    private Relay.Meters createMeters(MeterRegistry meterRegistry) {
+    private Relay.Meters createRelayMeters(MeterRegistry meterRegistry) {
 
         BiConsumer<String, IntPredicate> registerFillBand = (band, inBand) -> {
             Gauge.builder("wsgw.relay.buffer.connections", relays,
@@ -71,6 +83,48 @@ public class Relays {
         Counter relayEnqueueDrops = Counter.builder("wsgw.relay.enqueue.drops")
                 .tag("flow", "relay")
                 .tag("site", "client_to_gw").register(meterRegistry);
-        return new Relay.Meters(relayEnqueueWaitTime, relayEnqueueDrops);
+
+        var relayLatency = new EnumMap<TimeoutPhase, Timer>(TimeoutPhase.class);
+        for (var phase : TimeoutPhase.values()) {
+            relayLatency.put(phase, Timer.builder("wsgw.relay.latency")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app")
+                    .tag(TimeoutPhase.TAG, phase.tagValue()).register(meterRegistry));
+        }
+        Counter relayAttempts = Counter.builder("wsgw.relay.attempts")
+                .tag("flow", "relay")
+                .tag("site", "gw_to_app").register(meterRegistry);
+        Counter relayRetries = Counter.builder("wsgw.relay.retries")
+                .tag("flow", "relay")
+                .tag("site", "gw_to_app").register(meterRegistry);
+        Counter retryExhaustions = Counter.builder("wsgw.relay.retry.exhaustions")
+                .tag("flow", "relay")
+                .tag("site", "gw_to_app").register(meterRegistry);
+
+        return new Relay.Meters(relayEnqueueWaitTime,
+                relayLatency, relayAttempts, relayRetries, relayEnqueueDrops, retryExhaustions);
+    }
+
+    static class RetryBudgetDropCountIncrementor implements RetryBudget.Counter {
+        private final Counter counter;
+
+        RetryBudgetDropCountIncrementor(MeterRegistry meterRegistry) {
+            counter = Counter.builder("wsgw.relay.retry.budget.drops")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").register(meterRegistry);
+        }
+
+        @Override
+        public void increment() {
+            counter.increment();
+        }
+    }
+
+    private RetryBudget createRetryBudget(RetryParams retryParams, MeterRegistry meterRegistry) {
+        return new RetryBudget(
+                retryParams.retryBudget,
+                retryParams.retryBudgetWindow,
+                () -> relayMeters.relayRetries().increment(),
+                new RetryBudgetDropCountIncrementor(meterRegistry));
     }
 }

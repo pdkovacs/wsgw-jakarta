@@ -41,6 +41,11 @@ public class Request {
         return HttpClient.newBuilder()
                 .version(version)
                 .followRedirects(HttpClient.Redirect.NORMAL)
+                // Bounds the connect phase only, alongside the per-request timeout, and the shorter of the two
+                // applies: 20s is longer than relayResponseTimeout and connectWaitTimeout (10s by default), so
+                // this never fires today. Either way the expiry is an HttpConnectTimeoutException (the phase,
+                // not the setting). Shorten it to fail fast on an unreachable app; not below ~3s, the second
+                // SYN retransmit, or ordinary packet loss becomes a failure.
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();
     }
@@ -65,13 +70,11 @@ public class Request {
         appClient.close();
     }
 
-    public HttpResponse<Void> send(
-            Map<String,
-                    List<String>> reqHeaders,
-            String appPath,
-            String reqMethod,
-            String body,
-            Duration timeout) throws IOException, InterruptedException {
+    public HttpResponse<Void> send(Map<String, List<String>> reqHeaders,
+                                   String appPath,
+                                   String reqMethod,
+                                   String body,
+                                   Duration timeout) throws IOException, InterruptedException {
         log.debug("Building request to app at {}", appPath);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(appBaseUrl + appPath));
@@ -82,6 +85,7 @@ public class Request {
         }
 
         if (timeout != null) {
+            log.debug("setting request timeout: {}", timeout);
             requestBuilder.timeout(timeout);
         }
 
@@ -95,8 +99,7 @@ public class Request {
             reqHeaders.get(headerName).forEach(value -> requestBuilder.header(headerName, value));
         }
 
-        log.debug("Sending request... ({})",
-                appPath);
+        log.debug("Sending request... ({})",appPath);
         var response = appClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.discarding());
         log.debug("Request {} returned {}", appPath, response.statusCode());
         return response;

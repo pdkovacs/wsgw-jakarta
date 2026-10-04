@@ -15,6 +15,13 @@ logs alike:
 A client closing its session is a session event; the gateway telling the app is a disconnect.
 Name tests after both halves, e.g. `clientSessionCloseDisconnectsAtApp`.
 
+## Vocabulary: timeout vs deadline
+
+- **Timeout**: a relative duration, "wait at most this long". Every gateway-side knob and metric
+  uses it (`connectWaitTimeout`, `relayResponseTimeout`, `wsgw.*.timeouts`).
+- **Deadline**: an absolute instant. Only the app-side one derived from the relay timeout header
+  (`docs/backpressure.md` §2.5.2: arrival time plus the header's value) is called that.
+
 ## Grouping members
 
 Group a class's members with boxed `// --- label ---` dividers (a fixed 80-character dash rule

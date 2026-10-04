@@ -38,7 +38,9 @@ public class WsgwTestContext {
         }
 
         int connectTimeouts() {
-            return (int) registry.get("wsgw.connect.timeouts").tag("flow", "connect").tag("site", "gw_to_app").counter().count();
+            // summed over the phase tag
+            return (int) registry.get("wsgw.connect.timeouts").tag("flow", "connect").tag("site", "gw_to_app")
+                    .counters().stream().mapToDouble(Counter::count).sum();
         }
 
         Timer connectLatency() {
@@ -60,10 +62,40 @@ public class WsgwTestContext {
                     .tag("site", "client_to_gw").timer();
         }
 
+        // summed over the phase tag
+        long relayLatencyCount() {
+            return registry.get("wsgw.relay.latency").tag("flow", "relay").tag("site", "gw_to_app")
+                    .timers().stream().mapToLong(Timer::count).sum();
+        }
+
         int relayEnqueueDrops() {
             return (int) registry.get("wsgw.relay.enqueue.drops")
                     .tag("flow", "relay")
                     .tag("site", "client_to_gw").counter().count();
+        }
+
+        int relayAttempts() {
+            return (int) registry.get("wsgw.relay.attempts")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
+        }
+
+        int relayRetries() {
+            return (int) registry.get("wsgw.relay.retries")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
+        }
+
+        int retryExhaustions() {
+            return (int) registry.get("wsgw.relay.retry.exhaustions")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
+        }
+
+        int budgetDropCount() {
+            return (int) registry.get("wsgw.relay.retry.budget.drops")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app").counter().count();
         }
     }
 
@@ -181,5 +213,20 @@ public class WsgwTestContext {
             last = actual.get();
         }
         assertThat(last).as(description).isEqualTo(expected);
+    }
+
+    public static <T> void assertStaysTrue(Supplier<T> actual, T expected, Duration window, String msg)
+            throws InterruptedException {
+        var end = System.nanoTime() + window.toNanos();
+        do {
+            assertThat(actual.get()).as(msg).isEqualTo(expected);
+            Thread.sleep(25);
+        } while (System.nanoTime() < end);
+    }
+
+    public static <T> void assertEventuallyThenStable(Supplier<T> actual, T expected, Duration timeout,
+                                                      Duration stableFor, String description) throws InterruptedException {
+        assertEventually(actual, expected, timeout, description + " (reached)");
+        assertStaysTrue(actual, expected, stableFor, description + " (stable)");
     }
 }
