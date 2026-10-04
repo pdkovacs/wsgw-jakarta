@@ -15,6 +15,13 @@ logs alike:
 A client closing its session is a session event; the gateway telling the app is a disconnect.
 Name tests after both halves, e.g. `clientSessionCloseDisconnectsAtApp`.
 
+## Grouping members
+
+Group a class's members with `// --- label ---` dividers, and nothing else (no `// region`, no
+`====` banners). Congestion-related groups are labelled `flow=…, site=…` per
+`docs/backpressure.md` §2.1. Form, placement and label rules are in `CONTRIBUTING.md`; follow
+them in new code and when touching a class that has groups.
+
 ## Local CI
 
 Every commit kicks off a background build-and-test run of that commit. It is wired through

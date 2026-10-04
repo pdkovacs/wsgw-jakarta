@@ -5,6 +5,8 @@ import java.time.Duration;
 
 public class Configuration {
 
+    // --- base ---
+
     // Where Tomcat keeps its scratch/work area. Without this, embedded Tomcat
     // defaults to a "tomcat.<port>" directory under the process working dir,
     // littering the source tree.
@@ -12,7 +14,21 @@ public class Configuration {
 
     private String appBaseUrl;
 
-    private Duration connectWaitTimeout = Duration.ofSeconds(10);
+    // --- registration gate, shared by the flows (docs/backpressure.md §2.2) ---
+
+    // (no field yet: registrationWaitTimeout is hard-coded in its getter)
+
+    // --- flow=push, site=gw_to_client (docs/backpressure.md §2.3.2) ---
+
+    private Duration sendLockTimeout = Duration.ofSeconds(10);
+
+    private Duration sendLockTimeoutCountWindow = Duration.ofSeconds(30);
+
+    private int sendLockTimeoutsPreemptThreshold = 3;
+
+    private Duration sendLockTimeoutPreemptHoldDown =  Duration.ofSeconds(30);
+
+    // --- flow=connect, site=client_to_gw (docs/backpressure.md §2.4.1) ---
 
     private int maxInFlightConnects = 10000;
 
@@ -24,17 +40,17 @@ public class Configuration {
 
     private Duration connectPreemptHoldDown =  Duration.ofSeconds(30);
 
-    private Duration sendLockTimeout = Duration.ofSeconds(10);
+    // --- flow=connect, site=gw_to_app (docs/backpressure.md §2.4.2) ---
 
-    private Duration sendLockTimeoutCountWindow = Duration.ofSeconds(30);
+    private Duration connectWaitTimeout = Duration.ofSeconds(10);
 
-    private int sendLockTimeoutsPreemptThreshold = 3;
-
-    private Duration sendLockTimeoutPreemptHoldDown =  Duration.ofSeconds(30);
+    // --- flow=relay, site=client_to_gw (docs/backpressure.md §2.5.1) ---
 
     private int appwardDispatcherQueueSize = 20;
 
     private Duration relayEnqueueTimeout =  Duration.ofSeconds(30);
+
+    // --- base ---
 
     public String getAppBaseUrl() {
         return appBaseUrl;
@@ -52,9 +68,13 @@ public class Configuration {
         this.baseDir = baseDir;
     }
 
+    // --- registration gate, shared by the flows (docs/backpressure.md §2.2) ---
+
     public Duration getRegistrationWaitTimeout() {
         return Duration.ofSeconds(10);
     }
+
+    // --- flow=push, site=gw_to_client (docs/backpressure.md §2.3.2) ---
 
     public Duration getSendLockTimeout() {
         return sendLockTimeout;
@@ -64,13 +84,31 @@ public class Configuration {
         this.sendLockTimeout = sendLockTimeout;
     }
 
-    public Duration getConnectWaitTimeout() {
-        return connectWaitTimeout;
+    public Duration getSendLockTimeoutCountWindow() {
+        return sendLockTimeoutCountWindow;
     }
 
-    public void setConnectWaitTimeout(Duration connectWaitTimeout) {
-        this.connectWaitTimeout = connectWaitTimeout;
+    public void setSendLockTimeoutCountWindow(Duration sendLockTimeoutCountWindow) {
+        this.sendLockTimeoutCountWindow = sendLockTimeoutCountWindow;
     }
+
+    public int getSendLockTimeoutsPreemptThreshold() {
+        return sendLockTimeoutsPreemptThreshold;
+    }
+
+    public void setSendLockTimeoutsPreemptThreshold(int sendLockTimeoutsPreemptThreshold) {
+        this.sendLockTimeoutsPreemptThreshold = sendLockTimeoutsPreemptThreshold;
+    }
+
+    public Duration getSendLockTimeoutPreemptHoldDown() {
+        return sendLockTimeoutPreemptHoldDown;
+    }
+
+    public void setSendLockTimeoutPreemptHoldDown(Duration sendLockTimeoutPreemptHoldDown) {
+        this.sendLockTimeoutPreemptHoldDown = sendLockTimeoutPreemptHoldDown;
+    }
+
+    // --- flow=connect, site=client_to_gw (docs/backpressure.md §2.4.1) ---
 
     public int getMaxInFlightConnects() {
         return maxInFlightConnects;
@@ -112,29 +150,17 @@ public class Configuration {
         this.connectPreemptHoldDown = connectPreemptHoldDown;
     }
 
-    public Duration getSendLockTimeoutCountWindow() {
-        return sendLockTimeoutCountWindow;
+    // --- flow=connect, site=gw_to_app (docs/backpressure.md §2.4.2) ---
+
+    public Duration getConnectWaitTimeout() {
+        return connectWaitTimeout;
     }
 
-    public void setSendLockTimeoutCountWindow(Duration sendLockTimeoutCountWindow) {
-        this.sendLockTimeoutCountWindow = sendLockTimeoutCountWindow;
+    public void setConnectWaitTimeout(Duration connectWaitTimeout) {
+        this.connectWaitTimeout = connectWaitTimeout;
     }
 
-    public int getSendLockTimeoutsPreemptThreshold() {
-        return sendLockTimeoutsPreemptThreshold;
-    }
-
-    public void setSendLockTimeoutsPreemptThreshold(int sendLockTimeoutsPreemptThreshold) {
-        this.sendLockTimeoutsPreemptThreshold = sendLockTimeoutsPreemptThreshold;
-    }
-
-    public Duration getSendLockTimeoutPreemptHoldDown() {
-        return sendLockTimeoutPreemptHoldDown;
-    }
-
-    public void setSendLockTimeoutPreemptHoldDown(Duration sendLockTimeoutPreemptHoldDown) {
-        this.sendLockTimeoutPreemptHoldDown = sendLockTimeoutPreemptHoldDown;
-    }
+    // --- flow=relay, site=client_to_gw (docs/backpressure.md §2.5.1) ---
 
     public int getAppwardDispatcherQueueSize() {
         return appwardDispatcherQueueSize;
@@ -151,6 +177,8 @@ public class Configuration {
     public void setRelayEnqueueTimeout(Duration relayEnqueueTimeout) {
         this.relayEnqueueTimeout = relayEnqueueTimeout;
     }
+
+    // --- construction ---
 
     public static Configuration fromEnv() {
         var config = new Configuration();
