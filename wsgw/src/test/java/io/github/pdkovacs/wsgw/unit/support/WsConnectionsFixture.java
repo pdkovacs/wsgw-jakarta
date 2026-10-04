@@ -37,7 +37,9 @@ public final class WsConnectionsFixture {
 
     public record ConnectionsUnderTest(WsConnections connections, MeterRegistry registry) {
 
+        // -----------------------------------------------------------------------------
         // --- flow=connect, site=registration (asserted on by ConnectTest) ---
+        // -----------------------------------------------------------------------------
 
         // Eagerly registered in the WsConnections ctor, so this read succeeds (returning 0) even in
         // arms where no push ever raced -- the count, not a MeterNotFoundException, is the signal.
@@ -49,7 +51,9 @@ public final class WsConnectionsFixture {
             return (int) registry.get("wsgw.registration.timeouts").tag("flow", "connect").tag("site", "registration").counter().count();
         }
 
-        // --- the connection registry, by lifecycle state (no flow/site: not a congestion meter) ---
+        // -----------------------------------------------------------------------------
+        // --- the connection registry, by lifecycle state (no flow/site) ---
+        // -----------------------------------------------------------------------------
 
         public int connectionsAwaitingRegistration() {
             return connectionsInState("awaiting_registration");
@@ -67,7 +71,9 @@ public final class WsConnectionsFixture {
             return (int) registry.get("wsgw.connections").tag("state", state).gauge().value();
         }
 
+        // -----------------------------------------------------------------------------
         // --- flow=push, site=gw_to_client (asserted on by PushTest) ---
+        // -----------------------------------------------------------------------------
 
         public Timer sendLockWait() {
             return registry.get("wsgw.send_lock.wait").tag("flow", "push").tag("site", "gw_to_client").timer();

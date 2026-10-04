@@ -229,7 +229,9 @@ public class ConnectTest {
         assertThat(underTest.connectionsAwaitingRegistration()).isEqualTo(0);
     }
 
+    // -----------------------------------------------------------------------------
     // --- helpers ---
+    // -----------------------------------------------------------------------------
 
     // Runs one population arm and returns how many pushes recorded a wait-on-registration.
     // registerFirst == false: submit all pushes, wait one gap, then register -> push-arrives-first.
