@@ -5,6 +5,7 @@ import io.github.pdkovacs.wsgw.CircuitBreaker;
 import io.github.pdkovacs.wsgw.socket.ConnectionIdProvider;
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.appward.Request;
+import io.github.pdkovacs.wsgw.appward.TimeoutPhase;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -21,6 +22,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
+import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -39,15 +41,22 @@ public class ConnectionRequest extends HttpFilter {
 
     private static final CtxLogger logger = CtxLogger.of(ConnectionRequest.class);
 
-    private record Meters(Counter connectTimeouts, AtomicInteger inFlightConnects, Timer connectLatency) {
+    private record Meters(Map<TimeoutPhase, Counter> connectTimeouts, AtomicInteger inFlightConnects,
+                          Timer connectLatency) {
         static Meters create(MeterRegistry registry) {
             // Both meters observe the CONNECT flow's outbound hop (gw_to_app): how long the
             // app takes to acknowledge, and how many acknowledgements are outstanding. The
             // signals they drive are emitted on the inbound hop, below in doFilter.
 
-            // -- timeouts
-            Counter connectTimeouts =
-                    registry.counter("wsgw.connect.timeouts", "flow", "connect", "site", "gw_to_app");
+            // -- timeouts, by the phase of the exchange the wait budget ran out in
+            var connectTimeouts = new EnumMap<TimeoutPhase, Counter>(TimeoutPhase.class);
+            for (var phase : TimeoutPhase.values()) {
+                connectTimeouts.put(phase, Counter.builder("wsgw.connect.timeouts")
+                        .tag("flow", "connect")
+                        .tag("site", "gw_to_app")
+                        .tag(TimeoutPhase.TAG, phase.tagValue())
+                        .register(registry));
+            }
 
             // -- in-flights
             AtomicInteger inFlightConnects = new AtomicInteger(0);
@@ -126,7 +135,9 @@ public class ConnectionRequest extends HttpFilter {
             appStatus = registerWithApp(reqHeaders, connectionId); // blocking; cheap on a virtual thread
             meters.connectLatency.record(Duration.ofNanos(System.nanoTime() - start));
         } catch (HttpTimeoutException timeoutException) {
-            meters.connectTimeouts().increment();
+            // A connect-phase expiry (HttpConnectTimeoutException, a subclass) is a timeout like
+            // any other: it burned the whole wait. The phase tag keeps the two tellable apart.
+            meters.connectTimeouts().get(TimeoutPhase.of(timeoutException)).increment();
             meters.connectLatency.record(Duration.ofNanos(System.nanoTime() - start));
             circuitBreaker.increment();
             res.sendError(HttpServletResponse.SC_GATEWAY_TIMEOUT, "request timed out");

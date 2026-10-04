@@ -60,7 +60,22 @@ public class Configuration {
 
     private int appwardDispatcherQueueSize = 20;
 
-    private Duration relayEnqueueTimeout = Duration.ofSeconds(30);
+    private Duration relayEnqueueTimeout = Duration.ofSeconds(40);
+
+    // -----------------------------------------------------------------------------
+    // --- flow=relay, site=gw_to_app (docs/backpressure.md §2.5.2) ---
+    // -----------------------------------------------------------------------------
+
+    private Duration relayResponseTimeout = Duration.ofSeconds(10);
+
+    private int maxRelayRetries = 2;
+
+    private Duration relayRetryInterval = Duration.ofMillis(500);
+
+    // Share of recent relays that may be retries (0.1 = 10%)
+    private double relayRetryBudget = 0.1;
+
+    private Duration relayRetryBudgetWindow = Duration.ofSeconds(30);
 
     // -----------------------------------------------------------------------------
     // --- base ---
@@ -200,6 +215,50 @@ public class Configuration {
 
     public void setRelayEnqueueTimeout(Duration relayEnqueueTimeout) {
         this.relayEnqueueTimeout = relayEnqueueTimeout;
+    }
+
+    // -----------------------------------------------------------------------------
+    // --- flow=relay, site=gw_to_app (docs/backpressure.md §2.5.2) ---
+    // -----------------------------------------------------------------------------
+
+    public Duration getRelayResponseTimeout() {
+        return relayResponseTimeout;
+    }
+
+    public void setRelayResponseTimeout(Duration relayResponseTimeout) {
+        this.relayResponseTimeout = relayResponseTimeout;
+    }
+
+    public int getMaxRelayRetries() {
+        return maxRelayRetries;
+    }
+
+    public void setMaxRelayRetries(int maxRelayRetries) {
+        this.maxRelayRetries = maxRelayRetries;
+    }
+
+    public Duration getRelayRetryInterval() {
+        return relayRetryInterval;
+    }
+
+    public void setRelayRetryInterval(Duration relayRetryInterval) {
+        this.relayRetryInterval = relayRetryInterval;
+    }
+
+    public double getRelayRetryBudget() {
+        return relayRetryBudget;
+    }
+
+    public void setRelayRetryBudget(double relayRetryBudget) {
+        this.relayRetryBudget = relayRetryBudget;
+    }
+
+    public Duration getRelayRetryBudgetWindow() {
+        return relayRetryBudgetWindow;
+    }
+
+    public void setRelayRetryBudgetWindow(Duration relayRetryBudgetWindow) {
+        this.relayRetryBudgetWindow = relayRetryBudgetWindow;
     }
 
     // -----------------------------------------------------------------------------

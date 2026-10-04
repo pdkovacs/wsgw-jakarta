@@ -41,6 +41,8 @@ public class RelayIT {
 
     private final AtomicInteger messageSequence = new AtomicInteger();
 
+    private Configuration config;
+
     @AfterEach
     public void tearDown() throws Exception {
         wsgwTestContext.tearDown();
@@ -50,45 +52,182 @@ public class RelayIT {
     @DisplayName("delivery")
     class Delivery {
 
-        @BeforeEach
-        public void setUp(@TempDir Path tempDir) throws Exception {
-            var config = new Configuration();
-            config.setAppwardDispatcherQueueSize(BUFFER_BOUND);
-            wsgwTestContext.setUp(tempDir, config);
-        }
+        @Nested
+        @DisplayName("buffering")
+        class Buffering {
 
-        @Test
-        @DisplayName("a stalled connection does not hold up another connection's relay")
-        void stalledConnectionDoesNotHoldUpOthers() throws Exception {
-            var stalledClient = connect();
-            var flowingClient = connect();
-            var stall = stallApp(stalledClient);
-            try {
-                sendToApp(stalledClient);
-                stall.awaitInFlight();
-
-                var message = sendToApp(flowingClient);
-                assertThat(nextTextAtApp(flowingClient)).isEqualTo(message);
-            } finally {
-                stall.release();
-            }
-        }
-
-        @Test
-        @DisplayName("frames buffered while the app was stalled all reach it, in order, once it drains again")
-        void framesBufferedDuringStallAreDeliveredInOrder() throws Exception {
-            var client = connect();
-            var stall = stallApp(client);
-            List<String> sent;
-            try {
-                sent = fillToFull(client, stall);
-                awaitBufferFull();
-            } finally {
-                stall.release();
+            @BeforeEach
+            public void setUp(@TempDir Path tempDir) throws Exception {
+                config = new Configuration();
+                config.setAppwardDispatcherQueueSize(BUFFER_BOUND);
+                wsgwTestContext.setUp(tempDir, config);
             }
 
-            for (var message : sent) {
+            @Test
+            @DisplayName("a stalled connection does not hold up another connection's relay")
+            void stalledConnectionDoesNotHoldUpOthers() throws Exception {
+                var stalledClient = connect();
+                var flowingClient = connect();
+                var stall = stallApp(stalledClient);
+                try {
+                    sendToApp(stalledClient);
+                    stall.awaitInFlight();
+
+                    var message = sendToApp(flowingClient);
+                    assertThat(nextTextAtApp(flowingClient)).isEqualTo(message);
+                } finally {
+                    stall.release();
+                }
+            }
+
+            @Test
+            @DisplayName("each relay the app accepts is recorded in wsgw.relay.latency")
+            void deliveredRelaysAreTimed() throws Exception {
+                var client = connect();
+                var message = sendToApp(client);
                 assertThat(nextTextAtApp(client)).isEqualTo(message);
+
+                WsgwTestContext.assertEventually(
+                        () -> wsgwTestContext.meters.relayLatencyCount() > 0,
+                        true,
+                        Duration.ofSeconds(2),
+                        "relay latency is recorded once the app has accepted the message");
+            }
+
+            @Test
+            @DisplayName("frames buffered while the app was stalled all reach it, in order, once it drains again")
+            void framesBufferedDuringStallAreDeliveredInOrder() throws Exception {
+                var client = connect();
+                var stall = stallApp(client);
+                List<String> sent;
+                try {
+                    sent = fillToFull(client, stall);
+                    awaitBufferFull();
+                } finally {
+                    stall.release();
+                }
+
+                for (var message : sent) {
+                    assertThat(nextTextAtApp(client)).isEqualTo(message);
+                }
+            }
+        }
+
+        @Nested
+        @DisplayName("retries")
+        @Timeout(10)
+        class Retries {
+
+            public void setUp(Path tempDir) throws Exception {
+                setUp(tempDir, -1);
+            }
+
+            public void setUp(Path tempDir, int maxRelayRetries) throws Exception {
+                config = new Configuration();
+                config.setRelayResponseTimeout(Duration.ofMillis(100));
+                if (maxRelayRetries > -1) {
+                    config.setMaxRelayRetries(maxRelayRetries);
+                }
+                config.setRelayRetryBudget(0.5);
+                wsgwTestContext.setUp(tempDir, config);
+            }
+
+            @Test
+            @DisplayName("retries max N times after timeout")
+            void retriesMaxNTimesAfterTimeout(@TempDir Path tempDir) throws Exception {
+                int maxRetries = 2;
+                setUp(tempDir, maxRetries);
+                // Build budget-base to allow retries enough to reach max for a budget of 0.5
+                var flowingClient = connect();
+                sendToApp(flowingClient);
+                WsgwTestContext.assertEventually(
+                        () -> wsgwTestContext.meters.relayAttempts(),
+                        1,
+                        Duration.ofSeconds(2),
+                        "warm-up attempts");
+                WsgwTestContext.assertEventuallyThenStable(
+                        () -> wsgwTestContext.meters.relayRetries(),
+                        0,
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(1),
+                        "no retries during warm-up");
+
+                var stalledClient = connect();
+                var stall = stallApp(stalledClient);
+                try {
+                    sendToApp(stalledClient);
+                    stall.awaitInFlight();
+
+                    WsgwTestContext.assertEventuallyThenStable(
+                            () -> wsgwTestContext.meters.relayRetries(),
+                            maxRetries,
+                            Duration.ofSeconds(2),
+                            Duration.ofSeconds(1),
+                            "retries are maxed out");
+                    WsgwTestContext.assertEventuallyThenStable(
+                            () -> wsgwTestContext.meters.retryExhaustions(),
+                            1,
+                            Duration.ofSeconds(2),
+                            Duration.ofSeconds(1),
+                            "allowed number of retries are exhausted");
+                    WsgwTestContext.assertEventuallyThenStable(
+                            () -> wsgwTestContext.meters.budgetDropCount(),
+                            0,
+                            Duration.ofSeconds(2),
+                            Duration.ofSeconds(1),
+                            "retries remained within budget");
+                } finally {
+                    stall.release();
+                }
+            }
+
+            @Test
+            @DisplayName("retries within budget after timeout regardless of allowed max retries")
+            void retriesWithinBudgetAfterTimeout(@TempDir Path tempDir) throws Exception {
+                int maxRetries = 5;
+                setUp(tempDir, maxRetries);
+                // Build budget-base to allow retries enough to reach max for a budget of 0.5
+                var flowingClient = connect();
+                sendToApp(flowingClient);
+                WsgwTestContext.assertEventually(
+                        () -> wsgwTestContext.meters.relayAttempts(),
+                        1,
+                        Duration.ofSeconds(2),
+                        "one warm-up attempt");
+                WsgwTestContext.assertEventuallyThenStable(
+                        () -> wsgwTestContext.meters.relayRetries(),
+                        0,
+                        Duration.ofSeconds(2),
+                        Duration.ofSeconds(1),
+                        "no retries during warm-up");
+
+                var stalledClient = connect();
+                var stall = stallApp(stalledClient);
+                try {
+                    sendToApp(stalledClient);
+                    stall.awaitInFlight();
+
+                    WsgwTestContext.assertEventuallyThenStable(
+                            () -> wsgwTestContext.meters.relayRetries(),
+                            2,
+                            Duration.ofSeconds(2),
+                            Duration.ofSeconds(1),
+                            "retries were not maxed out");
+                    WsgwTestContext.assertEventuallyThenStable(
+                            () -> wsgwTestContext.meters.budgetDropCount(),
+                            1,
+                            Duration.ofSeconds(2),
+                            Duration.ofSeconds(1),
+                            "budget exhausted once");
+                    WsgwTestContext.assertEventuallyThenStable(
+                            () -> wsgwTestContext.meters.retryExhaustions(),
+                            0,
+                            Duration.ofSeconds(2),
+                            Duration.ofSeconds(1),
+                            "max number of retries not exhausted");
+                } finally {
+                    stall.release();
+                }
             }
         }
     }

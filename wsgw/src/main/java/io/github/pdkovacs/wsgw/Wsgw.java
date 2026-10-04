@@ -86,7 +86,11 @@ public class Wsgw {
         var dispatcherQueueParams = new Dispatcher.QueueParams(
                 configuration.getAppwardDispatcherQueueSize(),
                 configuration.getRelayEnqueueTimeout());
-         appwardRelays = new Relays(appwardRequest, dispatcherQueueParams, meterRegistry);
+        var retryParams = new Relays.RetryParams(configuration.getMaxRelayRetries(),
+                configuration.getRelayRetryInterval(), configuration.getRelayRetryBudget(),
+                configuration.getRelayRetryBudgetWindow());
+        appwardRelays = new Relays(appwardRequest, dispatcherQueueParams,
+                 configuration.getRelayResponseTimeout(), retryParams, meterRegistry);
 
         // register the connect filter: it generates the connection id, authenticates
         // the connect against the app, and injects X-WSGW-CONNECTION-ID for the
