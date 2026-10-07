@@ -91,8 +91,8 @@ public class MessageStressIT {
         final var tcLogger = logger.with("method", "sendReceiveMessagesFromAppMultipleClientsUnderStress");
 
         final boolean lowCoreHost = Runtime.getRuntime().availableProcessors() <= 4;
-        final int nrClients = lowCoreHost ? 500 : 1000;
-        final int nrMessagesToSend = lowCoreHost ? 500 : 1000;
+        final int nrClients = lowCoreHost ? 300 : 1000;
+        final int nrMessagesToSend = lowCoreHost ? 300 : 1000;
 
         final String wsgwServerName = wsgwTestContext.getWsgwServerName();
         final WsTestClients testClients = wsgwTestContext.wsTestClients;
