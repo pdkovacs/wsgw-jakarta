@@ -38,7 +38,7 @@ public class FromWsgwFilters {
     }
 
     public static class Authentication extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of("FakeApp." + Authentication.class.getSimpleName());
+        private static final CtxLogger logger = CtxLogger.of(Authentication.class);
 
         private final String[] expectedApiKey;
 
@@ -65,7 +65,7 @@ public class FromWsgwFilters {
     }
 
     public static class Connect extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of("FakeApp." + Connect.class.getSimpleName());
+        private static final CtxLogger logger = CtxLogger.of(Connect.class);
         private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
         private final FakeAppConfig fakeAppConfig;
 
@@ -99,7 +99,7 @@ public class FromWsgwFilters {
     }
 
     public static class Disconnect extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of("FakeApp." + Disconnect.class.getSimpleName());
+        private static final CtxLogger logger = CtxLogger.of(Disconnect.class);
         private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
         private final FakeAppConfig fakeAppConfig;
 
@@ -135,7 +135,7 @@ public class FromWsgwFilters {
     }
 
     public static class ReceiveMessage extends HttpFilter {
-        private static final CtxLogger logger = CtxLogger.of("FakeApp." + ReceiveMessage.class.getSimpleName());
+        private static final CtxLogger logger = CtxLogger.of(ReceiveMessage.class);
         private final ConcurrentMap<String, WsgwEndpoint> connectionEndpointRegistrar;
         private final FakeAppConfig fakeAppConfig;
 

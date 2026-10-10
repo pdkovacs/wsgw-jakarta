@@ -5,8 +5,7 @@ import io.github.pdkovacs.wsgw.integration.Message;
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.startup.Tomcat;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -16,7 +15,7 @@ import java.util.concurrent.ConcurrentMap;
 
 public class FakeApp {
 
-    private static final Logger log = LoggerFactory.getLogger(FakeApp.class);
+    private static final CtxLogger log = CtxLogger.of(FakeApp.class);
 
     private Tomcat tomcat;
 

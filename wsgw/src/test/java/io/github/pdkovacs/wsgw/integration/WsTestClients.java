@@ -6,8 +6,6 @@ import jakarta.websocket.*;
 import org.apache.tomcat.websocket.WsWebSocketContainer;
 import org.assertj.core.api.Assertions;
 import org.jspecify.annotations.NonNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.io.IOException;
@@ -94,7 +92,7 @@ record WebsocketTestClient(String wsgwServer, HttpClient httpClient, TestClientE
 }
 
 class WsTestClients implements AutoCloseable {
-    final private static Logger logger = LoggerFactory.getLogger(WsTestClients.class);
+    final private static CtxLogger logger = CtxLogger.of(WsTestClients.class);
 
     private final List<WebsocketTestClient> clients = Collections.synchronizedList(new ArrayList<>());
     private final Duration pushRequestTimeout;

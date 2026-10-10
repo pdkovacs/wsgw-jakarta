@@ -1,8 +1,7 @@
 package io.github.pdkovacs.wsgw.appward;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,7 +13,7 @@ import java.util.*;
 
 public class Request {
 
-    private static final Logger log = LoggerFactory.getLogger(Request.class);
+    private static final CtxLogger log = CtxLogger.of(Request.class);
 
     // Hop-by-hop WebSocket upgrade headers (plus host/content-length, which the
     // java.net.http client manages itself). These are stripped before relaying
