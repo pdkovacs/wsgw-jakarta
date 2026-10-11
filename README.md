@@ -22,11 +22,13 @@ Client                  wsgw                              Backend
   |<-- 101 handshake ----|                                   |
   |                      |                                   |
   |---- WS frame ------->|--- POST /ws/message/{id} ------->|
+  |                      |<------------ 200 -----------------|
   |                      |                                   |
   |                      |<-- POST /message/{id} ------------|
   |<--- WS frame --------|                                   |
   |                      |                                   |
   |--- WS close -------->|--- POST /ws/disconnected/{id} -->|
+  |                      |<------------ 200 -----------------|
 ```
 
 1. Client opens a WebSocket: `GET /connect`.
@@ -34,10 +36,14 @@ Client                  wsgw                              Backend
    to the backend's `/ws/connect/{id}` for authentication.
 3. Backend returns `204` → wsgw upgrades the connection to a WebSocket.
 4. **Client → backend:** wsgw relays each WS frame to `POST /ws/message/{id}`.
+   Backend returns `200`. Any other `2xx` is accepted with a warning in wsgw's log;
+   anything else counts as a failed delivery (error log, `wsgw.relay.failures`) and
+   the frame is not retried.
 5. **Backend → client:** backend `POST`s to wsgw's `/message/{id}`; wsgw delivers
    the body over the WebSocket.
 6. Either side closes → wsgw notifies the backend via
    `POST /ws/disconnected/{id}` (best-effort).
+   Backend returns `200`; the same rules as for messages apply to the answer.
 
 ## Endpoint reference
 
@@ -58,8 +64,8 @@ does no auth itself.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET`  | `/ws/connect/{connectionId}` | Authenticate a new connection. Return `204` to accept, `401` to reject. |
-| `POST` | `/ws/message/{connectionId}` | Receive a frame the client sent. |
-| `POST` | `/ws/disconnected/{connectionId}` | Disconnect notification (best-effort). |
+| `POST` | `/ws/message/{connectionId}` | Receive a frame the client sent. Return `200`. |
+| `POST` | `/ws/disconnected/{connectionId}` | Disconnect notification (best-effort). Return `200`. |
 
 ## Build & run
 

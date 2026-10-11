@@ -92,6 +92,14 @@ public class WsgwTestContext {
                     .tag("site", "gw_to_app").counter().count();
         }
 
+        // wsgw.relay.failures{reason=...}: relay attempts the app answered with a non-2xx status, or did not answer.
+        int relayFailures(String reason) {
+            return (int) registry.get("wsgw.relay.failures")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app")
+                    .tag("reason", reason).counter().count();
+        }
+
         int budgetDropCount() {
             return (int) registry.get("wsgw.relay.retry.budget.drops")
                     .tag("flow", "relay")

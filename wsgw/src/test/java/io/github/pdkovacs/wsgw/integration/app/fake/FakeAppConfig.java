@@ -13,6 +13,8 @@ public class FakeAppConfig {
     // Receives the id of the connection the relayed message belongs to, so a test can hold up one
     // connection's relay while the others pass straight through.
     private Consumer<String> messageProcessingImpl;
+    // The HTTP status the app answers a relayed message with. The message is recorded in the inbox either way.
+    private int messageResponseStatus = 200;
 
     public FakeAppConfig(Path tomcatBaseDir, String[] apiKey) {
         this.tomcatBaseDir = tomcatBaseDir;
@@ -49,5 +51,13 @@ public class FakeAppConfig {
 
     public void setMessageProcessingImpl(Consumer<String> messageProcessingImpl) {
         this.messageProcessingImpl = messageProcessingImpl;
+    }
+
+    public int getMessageResponseStatus() {
+        return messageResponseStatus;
+    }
+
+    public void setMessageResponseStatus(int messageResponseStatus) {
+        this.messageResponseStatus = messageResponseStatus;
     }
 }

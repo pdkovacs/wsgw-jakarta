@@ -18,10 +18,13 @@ public class Relay {
 
     public record RetryContext(int maxRetries, Duration interval, RetryBudget budget) {}
 
-    // The retry/exhaustion/budget-drop counters are registered ahead of the retry loop (docs/backpressure.md
-    // §2.5.2, [planned]): nothing increments them yet.
+    // The status the app is documented to answer a relayed message or a disconnect notification with
+    // (README, Endpoint reference). Any other 2xx is a delivery too, but worth a warning.
+    private static final int EXPECTED_STATUS = 200;
+
     record Meters(Timer enqueueWaitTime, Map<TimeoutPhase, Timer> relayLatency, Counter relayAttempts,
-                  Counter relayRetries, Counter enqueueTimeoutDrops, Counter retryExhaustions) {
+                  Counter relayRetries, Counter enqueueTimeoutDrops, Counter retryExhaustions,
+                  Map<FailureReason, Counter> relayFailures) {
     }
 
     private final Request appwardRequest;
@@ -101,9 +104,22 @@ public class Relay {
                     log.debug("Sending request to app...");
                     meters.relayAttempts.increment();
                     retryContext.budget.recordAttempt();
-                    appwardRequest.send(requestHeaders, pathOnApp + "/" + connectionId, "POST",
+                    var response = appwardRequest.send(requestHeaders, pathOnApp + "/" + connectionId, "POST",
                             msg, responseTimeout);
+                    // Any answer ends the attempt: a refusal is not retried (the app's answer is only
+                    // observed here, not yet acted on). It is a failed delivery, though, and not timed.
                     sent = true;
+                    var status = response.statusCode();
+                    if (status < 200 || status > 299) {
+                        var reason = FailureReason.of(status);
+                        meters.relayFailures.get(reason).increment();
+                        log.with("status", status).error("app refused relayed request");
+                        break;
+                    }
+                    if (status != EXPECTED_STATUS) {
+                        log.with("status", status).warn("app accepted relayed request with unexpected status (expected {})",
+                                EXPECTED_STATUS);
+                    }
                     meters.relayLatency.get(TimeoutPhase.RESPONSE).record(Duration.ofNanos(System.nanoTime() - startTime));
                     log.debug("Request sent to app");
                     break;
@@ -121,6 +137,7 @@ public class Relay {
             log.warn("Interrupted while waiting for request to connect");
             throw new RuntimeException(e);
         } catch (IOException e) {
+            meters.relayFailures.get(FailureReason.UNREACHABLE).increment();
             log.warn("IOException while waiting for request to connect", e);
             throw new RuntimeException(e);
         } catch (Exception e) {

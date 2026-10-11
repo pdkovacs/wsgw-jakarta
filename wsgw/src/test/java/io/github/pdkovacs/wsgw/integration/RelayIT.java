@@ -233,6 +233,85 @@ public class RelayIT {
     }
 
     @Nested
+    @DisplayName("the app's answer")
+    class Answers {
+
+        @BeforeEach
+        public void setUp(@TempDir Path tempDir) throws Exception {
+            config = new Configuration();
+            config.setRelayResponseTimeout(Duration.ofMillis(500));
+            wsgwTestContext.setUp(tempDir, config);
+        }
+
+        @Test
+        @DisplayName("a 200 is a delivery: timed, and no failure is counted")
+        void okIsDelivered() throws Exception {
+            var client = connect();
+            sendToApp(client);
+
+            WsgwTestContext.assertEventually(
+                    () -> wsgwTestContext.meters.relayLatencyCount(), 1L,
+                    Duration.ofSeconds(2), "the delivery is timed");
+            assertNoFailures();
+        }
+
+        @Test
+        @DisplayName("a 2xx other than 200 is a delivery too: timed, and no failure is counted")
+        void otherSuccessIsDelivered() throws Exception {
+            wsgwTestContext.fakeAppConfig.setMessageResponseStatus(204);
+            var client = connect();
+            sendToApp(client);
+
+            WsgwTestContext.assertEventually(
+                    () -> wsgwTestContext.meters.relayLatencyCount(), 1L,
+                    Duration.ofSeconds(2), "the delivery is timed");
+            assertNoFailures();
+        }
+
+        @Test
+        @DisplayName("a 5xx is counted as a failure by class, is not timed, and is not retried")
+        void serverErrorIsAFailure() throws Exception {
+            wsgwTestContext.fakeAppConfig.setMessageResponseStatus(503);
+            var client = connect();
+            sendToApp(client);
+
+            awaitAttempts(1);
+            WsgwTestContext.assertEventuallyThenStable(
+                    () -> wsgwTestContext.meters.relayFailures("5xx"), 1,
+                    Duration.ofSeconds(2), Duration.ofMillis(500), "one 5xx failure");
+            assertThat(wsgwTestContext.meters.relayFailures("4xx")).isZero();
+            assertThat(wsgwTestContext.meters.relayLatencyCount()).as("failed deliveries are not timed").isZero();
+            assertThat(wsgwTestContext.meters.relayRetries()).as("an answered refusal is not retried").isZero();
+        }
+
+        @Test
+        @DisplayName("a 4xx is counted as a failure by class")
+        void clientErrorIsAFailure() throws Exception {
+            wsgwTestContext.fakeAppConfig.setMessageResponseStatus(400);
+            var client = connect();
+            sendToApp(client);
+
+            WsgwTestContext.assertEventuallyThenStable(
+                    () -> wsgwTestContext.meters.relayFailures("4xx"), 1,
+                    Duration.ofSeconds(2), Duration.ofMillis(500), "one 4xx failure");
+            assertThat(wsgwTestContext.meters.relayFailures("5xx")).isZero();
+            assertThat(wsgwTestContext.meters.relayLatencyCount()).isZero();
+        }
+
+        private void awaitAttempts(int expected) throws Exception {
+            WsgwTestContext.assertEventually(
+                    () -> wsgwTestContext.meters.relayAttempts(), expected,
+                    Duration.ofSeconds(2), "relay attempts made");
+        }
+
+        private void assertNoFailures() {
+            for (var reason : List.of("4xx", "5xx", "other", "unreachable")) {
+                assertThat(wsgwTestContext.meters.relayFailures(reason)).as("failures, reason=" + reason).isZero();
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("fill bands")
     class FillBands {
 

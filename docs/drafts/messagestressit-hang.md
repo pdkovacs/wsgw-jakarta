@@ -21,7 +21,7 @@ hang. All three are fixed and verified on a live repro run:
    it, so workers were never interrupted and `close()` looped forever. Fixed: the
    submission loop now throttles via `inFlight.acquire()` per push and drains with a single
    bulk `inFlight.acquire(MAX_IN_FLIGHT_PUSHES)`
-   ([MessageStressIT.java:141,154](../wsgw/src/test/java/io/github/pdkovacs/wsgw/integration/MessageStressIT.java#L141)),
+   ([MessageStressIT.java:141,154](../../wsgw/src/test/java/io/github/pdkovacs/wsgw/integration/MessageStressIT.java#L141)),
    which propagates the interrupt cleanly (confirmed: `InterruptedException` appears as
    *Suppressed* under the `TimeoutException` in the report, not lost).
 3. **Teardown itself could hang independently of the test body** — `WsgwTestContext.tearDown()`
