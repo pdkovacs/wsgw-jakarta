@@ -653,8 +653,10 @@ per-connection drain.
 | `wsgw.relay.retries` | Messages re-sent after a timeout expiry. A rising count means the drain is stalling before the buffer shows it. |
 | `wsgw.relay.retry.exhaustions` | Messages dropped because their retries ran out. Every increment is a message the gateway gave up on — possibly processed by the app, possibly lost — so this is a distress signal. |
 | `wsgw.relay.retry.budget.drops` | Messages dropped without a retry because `relayRetryBudget` was spent. A rising count means most relays are timing out: the app as a whole is slow, not one instance of it. |
+| `wsgw.relay.failures` (tag `reason`) | Relay attempts that did not end in a delivery although the app was not merely slow: `4xx` and `5xx` — the app answered with that status class; `other` — any other non-2xx answer; `unreachable` — no answer at all (refused, reset, unresolvable). Counted per attempt, once, and not retried. Timeout expiries are not failures here: they have the retry counters above. |
 
-All five meters carry `flow=relay`, `site=gw_to_app`; `wsgw.relay.latency` also carries `phase`.
+All six meters carry `flow=relay`, `site=gw_to_app`; `wsgw.relay.latency` also carries `phase`, and
+`wsgw.relay.failures` carries `reason`.
 
 **`wsgw.relay.latency` times the wait, not the success.** Same convention as
 `wsgw.connect.latency` (§2.4.2): a relay attempt that ends at the relay response
@@ -664,6 +666,13 @@ being established (`phase=connect`), which is retried like any other expiry. A
 relay that failed at once (connection refused, reset and the like) is not
 recorded — that is a reachability problem, not a latency. Such a relay is not
 retried: the message is dropped, and none of the retry counters moves.
+
+**What the gateway makes of the app's answer.** Any 2xx answer is a delivery;
+200 is the documented one, and another 2xx is delivered with a warning in the
+log. A non-2xx answer is a failed delivery: logged as an error, counted in
+`wsgw.relay.failures`, not timed in `wsgw.relay.latency`, and not retried. The
+gateway does not yet distinguish among non-2xx answers — a 429, 503 or 504 from
+the app is treated like any other refusal, and `Retry-After` is not read.
 
 **Retry is re-delivery.** A timeout expiry does not mean the app failed to
 process the message — the response may merely be late. Retrying can therefore
@@ -777,7 +786,7 @@ visible.
 | **CONNECT** client→app | `client_to_gw` | Too many arrivals, or too many recent failures | Yes — `GET /connect` | `maxInFlightConnects`; `defaultAdmissionHoldDown`; `connectFailureCountWindow` / `connectFailurePreemptThreshold`; `connectPreemptHoldDown` | — (consumes the three below) | 503+`Retry-After` (admission: jittered connect-latency estimate; threshold: jittered rest of the hold-down) |
 | **CONNECT** client→app | `gw_to_app` | App slow to ack | No | `connectWaitTimeout` | `wsgw.connect.inflight`; `wsgw.connect.latency`; `wsgw.connect.timeouts` | — (surfaces on `client_to_gw` as 504) |
 | **RELAY** client→app | `client_to_gw` | Client outpaces app drain; buffer fills | **No** — WebSocket frame | `appwardDispatcherQueueSize`; `relayEnqueueTimeout` | `wsgw.relay.buffer.connections`; `wsgw.relay.enqueue.wait`; `wsgw.relay.enqueue.drops` | none over HTTP → stop reading socket → drop frame |
-| **RELAY** client→app | `gw_to_app` | App slow to accept a relayed message | No | `relayResponseTimeout`; `maxRelayRetries`; `relayRetryInterval`; `relayRetryBudget` / `relayRetryBudgetWindow` | `wsgw.relay.latency`; `wsgw.relay.attempts`; `wsgw.relay.retries`; `wsgw.relay.retry.exhaustions`; `wsgw.relay.retry.budget.drops` | none over HTTP → retry → drop message |
+| **RELAY** client→app | `gw_to_app` | App slow to accept a relayed message | No | `relayResponseTimeout`; `maxRelayRetries`; `relayRetryInterval`; `relayRetryBudget` / `relayRetryBudgetWindow` | `wsgw.relay.latency`; `wsgw.relay.attempts`; `wsgw.relay.retries`; `wsgw.relay.retry.exhaustions`; `wsgw.relay.retry.budget.drops`; `wsgw.relay.failures` | none over HTTP → retry → drop message |
 
 ---
 
@@ -1037,6 +1046,15 @@ draining a bounded `LinkedBlockingQueue`), created via `Relays`.
   `RetryBudget` through injected counters; `exhaustions` by `Relay.Retries`.
   Covered by `RelayIT.retriesMaxNTimesAfterTimeout` and
   `RelayIT.retriesWithinBudgetAfterTimeout`; not scrapeable (§5.5).
+- **`wsgw.relay.failures`** — `[partial]`. Registered in `Relays` with
+  `flow=relay`, `site=gw_to_app`, one `Counter` per `FailureReason`
+  (`reason=4xx|5xx|other|unreachable`). `Relay.relayToApp` reads the status of the
+  app's answer: a non-2xx increments the counter for its class, logs an error and
+  ends the attempt without a latency sample; an `IOException` other than a
+  timeout (a relay that never got an answer) increments `unreachable`. A 2xx
+  other than 200 logs a warning and is timed. The answer is observed, not acted
+  on: `sent` still becomes true on any answer, and nothing is retried on a
+  refusal. Covered by `RelayIT.Answers`; not scrapeable (§5.5).
 - **Relay timeout header** — `[planned]`. Nothing sets it; `Request.send` adds
   only the client's relayed headers. Header name not decided.
 
@@ -1055,6 +1073,10 @@ timeout ended in (`TimeoutPhase`). The JDK reports the phase the exchange was in
 when a timer fired, not which of the client's two timers fired, so it is the same
 whether `connectTimeout` or the request timeout expired. A reader of one of these
 meters that wants the total sums over `phase`.
+
+`reason` (`4xx` | `5xx` | `other` | `unreachable`) is a further tag, carried by
+`wsgw.relay.failures` only (`FailureReason`). A status class rather than a code,
+so the tag stays bounded.
 
 ### 5.6 Traceability: contract element → code → status
 
@@ -1092,6 +1114,7 @@ touch.
 | §2.5.2 retry-then-drop escalation (`maxRelayRetries`, `relayRetryInterval`) | `Relay.relayToApp` loop, `Relay.Retries.tryReserveRetry`; values from `Configuration` via `Relays.RetryParams` | `[implemented]` | defaults 2 and 500ms; only a timeout expiry is retried, connect-phase expiries included; other `IOException`s (refused, reset) drop the message without retry — the spec is silent on those; the duplicate tolerance stated in §2.5.2 still needs agreeing with the app side |
 | §2.5.2 metric `wsgw.relay.latency` | `Relays.createMeters` → `Timer` per phase (`flow=relay`/`site=gw_to_app`/`phase=connect\|response`); recorded in `Relay.relayToApp` | `[partial]` | not scrapeable; covered by `RelayIT.deliveredRelaysAreTimed` and `ConnectPhaseTimeoutTest` |
 | §2.5.2 metric `wsgw.relay.attempts` | `Relays.createMeters` → `Counter` (`flow=relay`/`site=gw_to_app`); incremented in `Relay.relayToApp` before each send | `[partial]` | not scrapeable; covered by `RelayIT.retriesMaxNTimesAfterTimeout` |
+| §2.5.2 metric `wsgw.relay.failures` | `Relays.createMeters` → `Counter` per `FailureReason` (`flow=relay`/`site=gw_to_app`/`reason=4xx\|5xx\|other\|unreachable`); incremented in `Relay.relayToApp` | `[partial]` | not scrapeable; covered by `RelayIT.Answers`. Observed only: a refusal is neither retried nor distinguished by `Retry-After` |
 | §2.5.2 metrics `wsgw.relay.retries` / `wsgw.relay.retry.exhaustions` / `wsgw.relay.retry.budget.drops` | `Relays.createMeters` / `Relays.RetryBudgetDropCountIncrementor` → three `Counter`s (`flow=relay`/`site=gw_to_app`); incremented by `RetryBudget` and `Relay.Retries` | `[partial]` | not scrapeable; covered by `RelayIT.retriesMaxNTimesAfterTimeout` / `retriesWithinBudgetAfterTimeout`. |
 | §2.5.2 `relayRetryBudget` / `relayRetryBudgetWindow` | `RetryBudget` (one per gateway instance, in `Relays`); values from `Configuration` | `[implemented]` | defaults 0.1 and 30s; per instance, no coordination between instances. Reading notes: the budget is cold at every window restart, so only the first-retry allowance applies until attempts accumulate |
 | §2.5.2 relay timeout header | — | `[planned]` | header name not decided; needs `Request.send` to take the per-attempt timeout |

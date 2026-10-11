@@ -101,8 +101,16 @@ public class Relays {
                 .tag("flow", "relay")
                 .tag("site", "gw_to_app").register(meterRegistry);
 
+        var relayFailures = new EnumMap<FailureReason, Counter>(FailureReason.class);
+        for (var reason : FailureReason.values()) {
+            relayFailures.put(reason, Counter.builder("wsgw.relay.failures")
+                    .tag("flow", "relay")
+                    .tag("site", "gw_to_app")
+                    .tag(FailureReason.TAG, reason.tagValue()).register(meterRegistry));
+        }
+
         return new Relay.Meters(relayEnqueueWaitTime,
-                relayLatency, relayAttempts, relayRetries, relayEnqueueDrops, retryExhaustions);
+                relayLatency, relayAttempts, relayRetries, relayEnqueueDrops, retryExhaustions, relayFailures);
     }
 
     static class RetryBudgetDropCountIncrementor implements RetryBudget.Counter {

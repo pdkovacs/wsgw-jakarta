@@ -168,6 +168,7 @@ public class FromWsgwFilters {
                 cmlogger.warn("Interrupted while trying to add message to inbox", e);
             }
             cmlogger.debug("message recorded", message);
+            res.setStatus(fakeAppConfig.getMessageResponseStatus());
         }
     }
 }
