@@ -19,6 +19,9 @@ set -euo pipefail
 # below once it operates on a second worktree's own paths.
 unset $(git rev-parse --local-env-vars)
 
+export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+export PATH="$JAVA_HOME/bin:$HOME/.sdkman/candidates/maven/current/bin:$PATH"
+
 SHA=""
 case "${1:?commit sha, or --worktree <path>, required}" in
   --worktree)
