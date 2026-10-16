@@ -38,6 +38,7 @@
         <assertj.version>3.27.6</assertj.version>
         <mockito.version>5.18.0</mockito.version>
         <micrometer.version>1.14.2</micrometer.version>
+        <otel-instrumentation.version>2.32.0-alpha</otel-instrumentation.version>
 
         <surefire.skip>false</surefire.skip>
     </properties>
@@ -67,6 +68,14 @@
                 <groupId>io.micrometer</groupId>
                 <artifactId>micrometer-bom</artifactId>
                 <version>${micrometer.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Also pulls in (and aligns) the core opentelemetry-bom -->
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom-alpha</artifactId>
+                <version>${otel-instrumentation.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
