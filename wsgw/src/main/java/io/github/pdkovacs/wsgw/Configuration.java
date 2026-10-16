@@ -20,7 +20,7 @@ public class Configuration {
     // --- registration gate, shared by the flows (docs/backpressure.md §2.2) ---
     // -----------------------------------------------------------------------------
 
-    // (no field yet: registrationWaitTimeout is hard-coded in its getter)
+    private Duration registrationWaitTimeout = Duration.ofSeconds(10);
 
     // -----------------------------------------------------------------------------
     // --- flow=push, site=gw_to_client (docs/backpressure.md §2.3.2) ---
@@ -102,7 +102,11 @@ public class Configuration {
     // -----------------------------------------------------------------------------
 
     public Duration getRegistrationWaitTimeout() {
-        return Duration.ofSeconds(10);
+        return registrationWaitTimeout;
+    }
+
+    public void setRegistrationWaitTimeout(Duration registrationWaitTimeout) {
+        this.registrationWaitTimeout = registrationWaitTimeout;
     }
 
     // -----------------------------------------------------------------------------
@@ -267,8 +271,32 @@ public class Configuration {
 
     public static Configuration fromEnv() {
         var config = new Configuration();
-        config.setAppBaseUrl(Env.required("APP_BASE_URL"));
-        config.setAppwardDispatcherQueueSize(Env.intVar("APPWARD_DISPATCHER_QUEUE_SIZE", 1024));
+        config.setAppBaseUrl(Env.required("WSGW_APP_BASE_URL"));
+        config.setBaseDir(Env.pathVar("WSGW_BASE_DIR", null));
+
+        config.setRegistrationWaitTimeout(Env.durationVar("WSGW_REGISTRATION_WAIT_TIMEOUT", config.getRegistrationWaitTimeout()));
+
+        config.setSendLockTimeout(Env.durationVar("WSGW_SEND_LOCK_TIMEOUT", config.getSendLockTimeout()));
+        config.setSendLockTimeoutCountWindow(Env.durationVar("WSGW_SEND_LOCK_TIMEOUT_COUNT_WINDOW", config.getSendLockTimeoutCountWindow()));
+        config.setSendLockTimeoutsPreemptThreshold(Env.intVar("WSGW_SEND_LOCK_TIMEOUTS_PREEMPT_THRESHOLD", config.getSendLockTimeoutsPreemptThreshold()));
+        config.setSendLockTimeoutPreemptHoldDown(Env.durationVar("WSGW_SEND_LOCK_TIMEOUT_PREEMPT_HOLD_DOWN", config.getSendLockTimeoutPreemptHoldDown()));
+
+        config.setMaxInFlightConnects(Env.intVar("WSGW_MAX_IN_FLIGHT_CONNECTS", config.getMaxInFlightConnects()));
+        config.setDefaultAdmissionHoldDown(Env.durationVar("WSGW_DEFAULT_ADMISSION_HOLD_DOWN", config.getDefaultAdmissionHoldDown()));
+        config.setConnectFailureCountWindow(Env.durationVar("WSGW_CONNECT_FAILURE_COUNT_WINDOW", config.getConnectFailureCountWindow()));
+        config.setConnectFailurePreemptThreshold(Env.intVar("WSGW_CONNECT_FAILURE_PREEMPT_THRESHOLD", config.getConnectFailurePreemptThreshold()));
+        config.setConnectPreemptHoldDown(Env.durationVar("WSGW_CONNECT_PREEMPT_HOLD_DOWN", config.getConnectPreemptHoldDown()));
+
+        config.setConnectWaitTimeout(Env.durationVar("WSGW_CONNECT_WAIT_TIMEOUT", config.getConnectWaitTimeout()));
+
+        config.setAppwardDispatcherQueueSize(Env.intVar("WSGW_APPWARD_DISPATCHER_QUEUE_SIZE", config.getAppwardDispatcherQueueSize()));
+        config.setRelayEnqueueTimeout(Env.durationVar("WSGW_RELAY_ENQUEUE_TIMEOUT", config.getRelayEnqueueTimeout()));
+
+        config.setRelayResponseTimeout(Env.durationVar("WSGW_RELAY_RESPONSE_TIMEOUT", config.getRelayResponseTimeout()));
+        config.setMaxRelayRetries(Env.intVar("WSGW_MAX_RELAY_RETRIES", config.getMaxRelayRetries()));
+        config.setRelayRetryInterval(Env.durationVar("WSGW_RELAY_RETRY_INTERVAL", config.getRelayRetryInterval()));
+        config.setRelayRetryBudget(Env.doubleVar("WSGW_RELAY_RETRY_BUDGET", config.getRelayRetryBudget()));
+        config.setRelayRetryBudgetWindow(Env.durationVar("WSGW_RELAY_RETRY_BUDGET_WINDOW", config.getRelayRetryBudgetWindow()));
         return config;
     }
 }

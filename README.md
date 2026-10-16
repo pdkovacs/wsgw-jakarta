@@ -57,7 +57,7 @@ Client                  wsgw                              Backend
 
 ### Expected from the backend
 
-The backend serves three endpoints under the base URL given by `APP_BASE_URL`.
+The backend serves three endpoints under the base URL given by `WSGW_APP_BASE_URL`.
 The original client headers (including `Authorization`) are passed through; wsgw
 does no auth itself.
 
@@ -81,8 +81,8 @@ Configuration is via environment variables, read at startup:
 
 | Variable | Default | Description |
 |---|---|---|
-| `APP_BASE_URL` | — | Base URL of the backend (e.g. `http://app:8080`). **Required.** |
-| `APPWARD_DISPATCHER_QUEUE_SIZE` | `1024` | Per-connection buffer bound for frames relayed to the backend. |
+| `WSGW_APP_BASE_URL` | — | Base URL of the backend (e.g. `http://app:8080`). **Required.** |
+| `WSGW_APPWARD_DISPATCHER_QUEUE_SIZE` | `1024` | Per-connection buffer bound for frames relayed to the backend. |
 
 ## Backpressure
 
