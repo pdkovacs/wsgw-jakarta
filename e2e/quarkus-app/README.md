@@ -42,7 +42,7 @@ export E2EAPP_SERVER_PORT=45678
 export E2EAPP_WSGW_HOST=localhost
 export E2EAPP_WSGW_PORT=45679
 export E2EAPP_PASSWORD_CREDENTIALS='[{"username":"alice","password":"hunter2"}]'
-mvn -pl app -am quarkus:dev
+mvn -pl quarkus-app -am quarkus:dev
 ```
 
 ## Endpoint reference
@@ -77,8 +77,8 @@ All env vars prefixed `E2EAPP_`, same as the Node ref.
 ## Build
 
 ```bash
-mvn -pl app -am package           # produces app/target/quarkus-app/
-mvn -pl app -am quarkus:dev       # live-reload dev mode
+mvn -pl quarkus-app -am package   # produces quarkus-app/target/quarkus-app/
+mvn -pl quarkus-app -am quarkus:dev  # live-reload dev mode
 ```
 
 ## Layout

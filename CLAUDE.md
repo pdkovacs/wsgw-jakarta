@@ -36,17 +36,27 @@ Every commit kicks off a background build-and-test run of that commit. It is wir
 `core.hooksPath`, which `scripts/ci/install.sh` points at `scripts/ci/hooks` — so `.git/hooks/`
 is empty. Do not read that as "no CI installed"; check `git config core.hooksPath`.
 
-- **What runs**: whatever `scripts/ci/run.sh` invokes — currently `mvn -B verify`, i.e. the whole
-  suite, unit tests and ITs alike. Read the script rather than assuming. As more stress-style tests
-  land this may split into tiers, and at that point a green run stops implying the slow ones passed.
+- **What runs**: whatever `scripts/ci/run.sh` invokes — `mvn -B verify`, unit tests and ITs alike,
+  in one of two scopes. Read the script rather than assuming.
+  - **e2e**: a hook-triggered run builds only `E2E_MODULES` (with `-am`) when nothing under
+    `FULL_SUITE_PATHS` (gateway, contract, common, root POM; both in `scripts/ci/config`) changed
+    since the nearest first-parent ancestor that passed. Such a green run still means "the whole
+    suite is green": e2e passed, and the gateway is unchanged since a green full run.
+  - **full**: every other run, including any explicit `scripts/ci/run.sh <commit>`. Running
+    `scripts/ci/run.sh HEAD` at the start of a day (it runs in the foreground) gives the day's
+    e2e commits a passing base.
+
+  As more stress-style tests land this may split into tiers, and at that point a green run stops
+  implying the slow ones passed.
 - **When**: on `post-commit`, `post-merge` and `post-rewrite`, gated on `WATCH_PATHS` in
-  `scripts/ci/config` (currently `wsgw e2e wsgw-contract`). A commit touching only docs triggers
-  nothing, so silence there does not mean "still running". `post-commit` deliberately stays quiet
-  during an interactive rebase; `post-rewrite` covers the rebase as a whole.
+  `scripts/ci/config` (currently `wsgw e2e wsgw-contract wsgw-common`). A commit touching only
+  docs triggers nothing, so silence there does not mean "still running". `post-commit`
+  deliberately stays quiet during an interactive rebase; `post-rewrite` covers the rebase as a
+  whole.
 - **What it tests**: the committed SHA, checked out into a disposable worktree. Uncommitted
   working-tree changes are not covered — running tests on those is still your job, before the commit.
-- **Results**: `scripts/ci/status.sh` for recent runs, `scripts/ci/status.sh log` for the latest
-  full log. Runs are serialized by a lock, so a commit made while one is in flight queues behind it.
+- **Results**: `scripts/ci/status.sh` for recent runs (last column: scope),
+  `scripts/ci/status.sh log` for the latest full log. Runs are serialized by a lock, so a commit made while one is in flight queues behind it.
   Output lives under `/tmp/wsgw-ci` (override with `WSGW_CI_HOME`) and is ephemeral across reboots.
 
 After the user commits, check `status.sh` rather than offering to re-run the suite yourself.

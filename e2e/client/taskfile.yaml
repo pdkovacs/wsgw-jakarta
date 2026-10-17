@@ -1,0 +1,14 @@
+version: "3"
+
+tasks:
+  image:
+    desc: Build the e2e client and its image, straight into minikube's Docker
+    cmds:
+      # copy-dependencies only adds jars: clear the old ones so a dropped dependency goes too
+      - rm -rf target/lib
+      # From the repo root, so -am rebuilds wsgw-common rather than using a stale installed copy
+      - mvn -B -q -f "$(git rev-parse --show-toplevel)/pom.xml" -pl :wsgw-e2e-client -am package -DskipTests
+      # One command: docker-env only applies to the shell it is eval'ed in
+      - |
+        eval "$(minikube docker-env)"
+        docker build -t wsgw-jakarta/e2e-client:dev .

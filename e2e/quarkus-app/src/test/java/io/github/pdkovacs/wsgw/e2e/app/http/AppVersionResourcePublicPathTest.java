@@ -11,16 +11,16 @@ import static org.hamcrest.Matchers.notNullValue;
  * Regression test for the {@link Public} exemption in {@link BasicAuthFilter}.
  *
  * <p>{@link BasicAuthFilter} skips authentication for resources/methods annotated
- * {@link Public}. {@link AppInfoResource} carries that annotation, so {@code /app-info}
+ * {@link Public}. {@link AppVersionResource} carries that annotation, so {@code /app-info}
  * must be reachable without credentials.
  */
 @QuarkusTest
-class AppInfoResourcePublicPathTest {
+class AppVersionResourcePublicPathTest {
 
     @Test
     void appInfoIsReachableWithoutAuthentication() {
         given()
-                .when().get("/app-info")
+                .when().get("/version")
                 .then()
                 .statusCode(200)
                 .body("application", is("wsgw::e2e::app"))

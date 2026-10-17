@@ -1,5 +1,14 @@
-# Sourced by the CI git hooks.
+# Sourced by the CI git hooks and by run.sh.
 # Git pathspecs that must change for a commit/merge to trigger a run.
 # Space-separated; empty means "watch everything".
 # Override ad hoc from a shell with WSGW_CI_WATCH_PATHS.
-WATCH_PATHS="wsgw e2e wsgw-contract"
+WATCH_PATHS="wsgw e2e wsgw-contract wsgw-common"
+
+# Git pathspecs that feed the gateway's build. A queued run tests only E2E_MODULES
+# when none of these changed since the nearest first-parent ancestor that passed;
+# otherwise, and for explicit requests, it runs the whole suite.
+FULL_SUITE_PATHS="wsgw wsgw-contract wsgw-common pom.xml"
+
+# Maven modules (paths) a narrowed run builds, with -am for what they depend on.
+# Space-separated; add new e2e modules here.
+E2E_MODULES="e2e/app e2e/client e2e/quarkus-app"

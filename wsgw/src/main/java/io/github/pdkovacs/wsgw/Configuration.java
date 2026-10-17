@@ -1,5 +1,7 @@
 package io.github.pdkovacs.wsgw;
 
+import io.github.pdkovacs.wsgw.config.Env;
+
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -8,6 +10,8 @@ public class Configuration {
     // -----------------------------------------------------------------------------
     // --- base ---
     // -----------------------------------------------------------------------------
+
+    private int serverPort = 8080;
 
     // Where Tomcat keeps its scratch/work area. Without this, embedded Tomcat
     // defaults to a "tomcat.<port>" directory under the process working dir,
@@ -80,6 +84,14 @@ public class Configuration {
     // -----------------------------------------------------------------------------
     // --- base ---
     // -----------------------------------------------------------------------------
+
+    public int getServerPort() {
+        return serverPort;
+    }
+
+    public void setServerPort(int serverPort) {
+        this.serverPort = serverPort;
+    }
 
     public String getAppBaseUrl() {
         return appBaseUrl;
@@ -270,33 +282,38 @@ public class Configuration {
     // -----------------------------------------------------------------------------
 
     public static Configuration fromEnv() {
+        return fromEnv(Env.system());
+    }
+
+    public static Configuration fromEnv(Env env) {
         var config = new Configuration();
-        config.setAppBaseUrl(Env.required("WSGW_APP_BASE_URL"));
-        config.setBaseDir(Env.pathVar("WSGW_BASE_DIR", null));
+        config.setServerPort(env.intVar("WSGW_SERVER_PORT", config.getServerPort()));
+        config.setAppBaseUrl(env.required("WSGW_APP_BASE_URL"));
+        config.setBaseDir(env.pathVar("WSGW_BASE_DIR", null));
 
-        config.setRegistrationWaitTimeout(Env.durationVar("WSGW_REGISTRATION_WAIT_TIMEOUT", config.getRegistrationWaitTimeout()));
+        config.setRegistrationWaitTimeout(env.durationVar("WSGW_REGISTRATION_WAIT_TIMEOUT", config.getRegistrationWaitTimeout()));
 
-        config.setSendLockTimeout(Env.durationVar("WSGW_SEND_LOCK_TIMEOUT", config.getSendLockTimeout()));
-        config.setSendLockTimeoutCountWindow(Env.durationVar("WSGW_SEND_LOCK_TIMEOUT_COUNT_WINDOW", config.getSendLockTimeoutCountWindow()));
-        config.setSendLockTimeoutsPreemptThreshold(Env.intVar("WSGW_SEND_LOCK_TIMEOUTS_PREEMPT_THRESHOLD", config.getSendLockTimeoutsPreemptThreshold()));
-        config.setSendLockTimeoutPreemptHoldDown(Env.durationVar("WSGW_SEND_LOCK_TIMEOUT_PREEMPT_HOLD_DOWN", config.getSendLockTimeoutPreemptHoldDown()));
+        config.setSendLockTimeout(env.durationVar("WSGW_SEND_LOCK_TIMEOUT", config.getSendLockTimeout()));
+        config.setSendLockTimeoutCountWindow(env.durationVar("WSGW_SEND_LOCK_TIMEOUT_COUNT_WINDOW", config.getSendLockTimeoutCountWindow()));
+        config.setSendLockTimeoutsPreemptThreshold(env.intVar("WSGW_SEND_LOCK_TIMEOUTS_PREEMPT_THRESHOLD", config.getSendLockTimeoutsPreemptThreshold()));
+        config.setSendLockTimeoutPreemptHoldDown(env.durationVar("WSGW_SEND_LOCK_TIMEOUT_PREEMPT_HOLD_DOWN", config.getSendLockTimeoutPreemptHoldDown()));
 
-        config.setMaxInFlightConnects(Env.intVar("WSGW_MAX_IN_FLIGHT_CONNECTS", config.getMaxInFlightConnects()));
-        config.setDefaultAdmissionHoldDown(Env.durationVar("WSGW_DEFAULT_ADMISSION_HOLD_DOWN", config.getDefaultAdmissionHoldDown()));
-        config.setConnectFailureCountWindow(Env.durationVar("WSGW_CONNECT_FAILURE_COUNT_WINDOW", config.getConnectFailureCountWindow()));
-        config.setConnectFailurePreemptThreshold(Env.intVar("WSGW_CONNECT_FAILURE_PREEMPT_THRESHOLD", config.getConnectFailurePreemptThreshold()));
-        config.setConnectPreemptHoldDown(Env.durationVar("WSGW_CONNECT_PREEMPT_HOLD_DOWN", config.getConnectPreemptHoldDown()));
+        config.setMaxInFlightConnects(env.intVar("WSGW_MAX_IN_FLIGHT_CONNECTS", config.getMaxInFlightConnects()));
+        config.setDefaultAdmissionHoldDown(env.durationVar("WSGW_DEFAULT_ADMISSION_HOLD_DOWN", config.getDefaultAdmissionHoldDown()));
+        config.setConnectFailureCountWindow(env.durationVar("WSGW_CONNECT_FAILURE_COUNT_WINDOW", config.getConnectFailureCountWindow()));
+        config.setConnectFailurePreemptThreshold(env.intVar("WSGW_CONNECT_FAILURE_PREEMPT_THRESHOLD", config.getConnectFailurePreemptThreshold()));
+        config.setConnectPreemptHoldDown(env.durationVar("WSGW_CONNECT_PREEMPT_HOLD_DOWN", config.getConnectPreemptHoldDown()));
 
-        config.setConnectWaitTimeout(Env.durationVar("WSGW_CONNECT_WAIT_TIMEOUT", config.getConnectWaitTimeout()));
+        config.setConnectWaitTimeout(env.durationVar("WSGW_CONNECT_WAIT_TIMEOUT", config.getConnectWaitTimeout()));
 
-        config.setAppwardDispatcherQueueSize(Env.intVar("WSGW_APPWARD_DISPATCHER_QUEUE_SIZE", config.getAppwardDispatcherQueueSize()));
-        config.setRelayEnqueueTimeout(Env.durationVar("WSGW_RELAY_ENQUEUE_TIMEOUT", config.getRelayEnqueueTimeout()));
+        config.setAppwardDispatcherQueueSize(env.intVar("WSGW_APPWARD_DISPATCHER_QUEUE_SIZE", config.getAppwardDispatcherQueueSize()));
+        config.setRelayEnqueueTimeout(env.durationVar("WSGW_RELAY_ENQUEUE_TIMEOUT", config.getRelayEnqueueTimeout()));
 
-        config.setRelayResponseTimeout(Env.durationVar("WSGW_RELAY_RESPONSE_TIMEOUT", config.getRelayResponseTimeout()));
-        config.setMaxRelayRetries(Env.intVar("WSGW_MAX_RELAY_RETRIES", config.getMaxRelayRetries()));
-        config.setRelayRetryInterval(Env.durationVar("WSGW_RELAY_RETRY_INTERVAL", config.getRelayRetryInterval()));
-        config.setRelayRetryBudget(Env.doubleVar("WSGW_RELAY_RETRY_BUDGET", config.getRelayRetryBudget()));
-        config.setRelayRetryBudgetWindow(Env.durationVar("WSGW_RELAY_RETRY_BUDGET_WINDOW", config.getRelayRetryBudgetWindow()));
+        config.setRelayResponseTimeout(env.durationVar("WSGW_RELAY_RESPONSE_TIMEOUT", config.getRelayResponseTimeout()));
+        config.setMaxRelayRetries(env.intVar("WSGW_MAX_RELAY_RETRIES", config.getMaxRelayRetries()));
+        config.setRelayRetryInterval(env.durationVar("WSGW_RELAY_RETRY_INTERVAL", config.getRelayRetryInterval()));
+        config.setRelayRetryBudget(env.doubleVar("WSGW_RELAY_RETRY_BUDGET", config.getRelayRetryBudget()));
+        config.setRelayRetryBudgetWindow(env.durationVar("WSGW_RELAY_RETRY_BUDGET_WINDOW", config.getRelayRetryBudgetWindow()));
         return config;
     }
 }

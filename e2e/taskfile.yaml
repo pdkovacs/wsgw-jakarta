@@ -1,0 +1,12 @@
+version: "3"
+
+includes:
+  app:
+    taskfile: ./app/taskfile.yaml
+    dir: ./app
+  client:
+    taskfile: ./client/taskfile.yaml
+    dir: ./client
+  k8s:
+    taskfile: ./deploy/k8s/taskfile.yaml
+    dir: ./deploy/k8s

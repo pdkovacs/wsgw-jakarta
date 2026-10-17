@@ -14,6 +14,7 @@
 
     <modules>
         <module>wsgw-contract</module>
+        <module>wsgw-common</module>
         <module>wsgw</module>
         <module>e2e</module>
     </modules>
@@ -28,6 +29,7 @@
         <git-commit-id-plugin.version>9.0.1</git-commit-id-plugin.version>
         <surefire-plugin.version>3.5.5</surefire-plugin.version>
         <failsafe-plugin.version>3.5.5</failsafe-plugin.version>
+        <dependency-plugin.version>3.7.0</dependency-plugin.version>
 
         <!-- Surefire/Failsafe swallow captured test stdout/stderr into the report XML by default here,
              keeping tool noise (Mockito self-attach warnings, etc.) off the console.
@@ -39,6 +41,11 @@
         <mockito.version>5.18.0</mockito.version>
         <micrometer.version>1.14.2</micrometer.version>
         <otel-instrumentation.version>2.32.0-alpha</otel-instrumentation.version>
+        <tomcat.version>11.0.22</tomcat.version>
+        <!-- What logback ${logback.version} pulls in transitively; wsgw-common names it explicitly. -->
+        <slf4j.version>2.0.17</slf4j.version>
+        <logback.version>1.5.25</logback.version>
+        <logstash-logback-encoder.version>8.1</logstash-logback-encoder.version>
 
         <surefire.skip>false</surefire.skip>
     </properties>
@@ -78,6 +85,31 @@
                 <version>${otel-instrumentation.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-core</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-websocket</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-core</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.logstash.logback</groupId>
+                <artifactId>logstash-logback-encoder</artifactId>
+                <version>${logstash-logback-encoder.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -120,6 +152,25 @@
                     <groupId>io.github.git-commit-id</groupId>
                     <artifactId>git-commit-id-maven-plugin</artifactId>
                     <version>${git-commit-id-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>get-the-git-infos</id>
+                            <phase>initialize</phase>
+                            <goals>
+                                <goal>revision</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                        <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
+                        <generateGitPropertiesFile>false</generateGitPropertiesFile>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${dependency-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

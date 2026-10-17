@@ -13,11 +13,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
-@Path("/app-info")
+@Path("/version")
 @ApplicationScoped
-public class AppInfoResource {
+public class AppVersionResource {
 
-    private static final CtxLogger log = CtxLogger.of(AppInfoResource.class);
+    private static final CtxLogger log = CtxLogger.of(AppVersionResource.class);
 
     public record AppInfo(String application, String version, String commit, String buildTime) {
     }

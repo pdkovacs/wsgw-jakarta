@@ -130,6 +130,8 @@ public class WsgwTestContext {
         String appBaseUrl = "http://localhost:%d".formatted(appPort);
         wsgwConfig.setAppBaseUrl(appBaseUrl);
         wsgwConfig.setBaseDir(tempDir.resolve("wsgw"));
+        // Ephemeral: tests must not depend on 8080 being free
+        wsgwConfig.setServerPort(0);
         this.wsgwConfig = wsgwConfig;
 
         wsgw = new Wsgw(wsgwConfig, meterRegistry, connectionIdGeneratorMock);

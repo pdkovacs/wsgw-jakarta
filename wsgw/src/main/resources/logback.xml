@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
+    <!-- java.util.logging levels follow logback's, so JUL doesn't build records logback then drops -->
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+        <resetJUL>true</resetJUL>
+    </contextListener>
+
     <!-- JSON to stdout. LogstashEncoder maps SLF4J key/value pairs (CtxLogger
          bound fields) and MDC entries to top-level JSON properties. -->
     <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">

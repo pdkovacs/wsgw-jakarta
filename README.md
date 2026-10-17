@@ -96,7 +96,9 @@ implementation status — in **[docs/backpressure.md](docs/backpressure.md)**.
 |---|---|
 | `wsgw/` | The gateway itself. |
 | `wsgw-contract/` | Shared path/constant definitions for the wsgw↔backend contract. |
-| `e2e/app/` | A reference backend used by the end-to-end suite. |
+| `wsgw-common/` | Plumbing shared by the gateway and the e2e apps (structured logging, typed env-var config); not part of the contract. |
+| `e2e/app/` | The end-to-end suite's app, on the gateway's embedded-Tomcat model. Being built; see [docs/drafts/e2e-app-port.md](docs/drafts/e2e-app-port.md). |
+| `e2e/quarkus-app/` | The original Quarkus backend for the end-to-end suite, kept beside `e2e/app/`. |
 
 ## Non-goals
 

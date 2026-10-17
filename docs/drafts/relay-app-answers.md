@@ -27,23 +27,35 @@ meter says "the app refused this".
 This is also true of `POST /ws/disconnected/{id}`, which goes through the same
 `relayToApp` (`Relay.sendDisconnect`).
 
-### 1.1 Finding: what the reference app answers is probably 204, not 200
+### 1.1 Finding: the reference app answers 200, but not on the paths the gateway calls
 
-The proposal that started this draft assumed the reference app answers 200 in
-normal operation. That is probably wrong, and it matters for the rule in §2:
+The proposal that started this draft assumed the reference app (e2e-app) answers 200
+in normal operation. An earlier version of this section inferred 204 instead,
+reasoning that the gateway accepts only 204 on connect and "the e2e suite passes".
+That inference was wrong: the suite that passes is the gateway's ITs against the
+in-repo fake app (`FromWsgwFilters`, which sets `SC_NO_CONTENT` explicitly), not
+e2e-app.
 
-- `WsResource.connect` returns `Response.ok().build()` (no entity). The gateway
-  accepts only `204` on connect (`ConnectionRequest`: any other non-401 answer is
-  mapped to 502), and the e2e suite passes. So Quarkus REST must be sending 204
-  for an empty `Response.ok()`.
-- `WsResource.message` and `.disconnected` use the same `Response.ok().build()`, so
-  they most likely answer 204 too.
-- The in-repo fake app (`FromWsgwFilters`) sets `SC_NO_CONTENT` explicitly.
+**Verified on 2026-10-17** against the Quarkus e2e-app, as of commit `6ced75e`
+(see `e2e-app-port.md`):
 
-**Inferred, not verified**: I have not run the reference app. One request against
-it (or a log line in `Relay`) settles it. If it holds, "anything other than 200 is
-failed" would flag the reference app's own normal answers, and 2xx must be the
-success class with no per-code warning, or the warning must name 204 as expected.
+- **The paths don't match.** `WsResource`'s class-level `@Path("/ws")` is joined to
+  method paths that already start with `/ws/` (`AppPaths.*_FROM_WSGW`), so the real
+  routes are `/ws/ws/connect/{id}` etc. The gateway's `/ws/connect/{id}` gets **404**.
+- **Connect answers 200.** On its real route, connect's `Response.ok().build()` goes
+  out as 200, not 204, so the gateway would refuse every connect even with the path
+  fixed (`ConnectionRequest`: any answer other than 204 or 401 becomes 502).
+- **Message and disconnect answer 400.** Their `@PathParam` names
+  `x-wsgw-connection-id` while the path template variable is `connId`, so the id is
+  always null.
+
+So e2e-app has not run end to end against this gateway, and its answers can't
+settle the question this section was raising. These bugs are being fixed as part of
+the e2e-app port, and that fix is where the documented success code (200
+or 204) for relayed messages and disconnects gets chosen. The consequence for §2
+still holds: if that code is 204, "anything other than 200 is failed" would flag
+normal answers, so 2xx must be the success class with no per-code warning, or the
+warning must name 204 as expected.
 
 ### 1.2 Finding: §5.3 overstates CONNECT's pass-through
 

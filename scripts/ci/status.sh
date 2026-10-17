@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Usage: status.sh          -> last 20 runs, plus whatever is running or queued
+# Usage: status.sh          -> last 20 runs, plus whatever is running or queued;
+#                              the last column is the scope (full, or e2e only)
 #        status.sh <n>      -> last n runs
 #        status.sh log      -> full log of the latest run
 set -euo pipefail
@@ -18,9 +19,9 @@ if [ -e "$CI_HOME/latest/status" ] && [ "$(cat "$CI_HOME/latest/status")" = "RUN
   META="$CI_HOME/latest/meta.txt"
   STARTED="$(meta started "$META")"
   ELAPSED=$(( $(date +%s) - $(date -d "$STARTED" +%s) ))
-  RUNNING_LINE="$(printf '%s\t%s\t%s\t%s\t%s\tRUNNING\t%ss\t%s' \
+  RUNNING_LINE="$(printf '%s\t%s\t%s\t%s\t%s\tRUNNING\t%ss\t%s\t%s' \
     "$STARTED" "$(meta sha "$META")" "$(meta subject "$META")" "$(meta branch "$META")" \
-    "$(meta worktree "$META")" "$ELAPSED" "$CI_HOME/latest")"
+    "$(meta worktree "$META")" "$ELAPSED" "$CI_HOME/latest" "$(meta scope "$META" || true)")"
 fi
 
 # One line per worktree with a request waiting for the lock, showing what that

@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.pdkovacs</groupId>
+        <artifactId>wsgw-e2e</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>wsgw-e2e-quarkus-app</artifactId>
+    <name>wsgw :: e2e :: quarkus-app</name>
+
+    <properties>
+        <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+        <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+        <quarkus.platform.version>3.35.4</quarkus.platform.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!--
+                Import the JUnit BOM *before* the Quarkus BOM so our ${junit.version}
+                (from the root pom) wins over the older JUnit that quarkus-bom pins.
+                dependencyManagement import scope is first-declared-wins.
+            -->
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>${quarkus.platform.group-id}</groupId>
+                <artifactId>${quarkus.platform.artifact-id}</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.pdkovacs</groupId>
+            <artifactId>wsgw-contract</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-vertx</artifactId>
+        </dependency>
+        <!-- JSON console logging; serializes MDC entries (CtxLogger context) as top-level fields -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-logging-json</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>io.quarkus.platform</groupId>
+                    <artifactId>quarkus-maven-plugin</artifactId>
+                    <version>${quarkus.platform.version}</version>
+                </plugin>
+
+                <!--
+                    surefire runs @QuarkusTest classes (*Test) in the test phase;
+                    failsafe runs @QuarkusIntegrationTest classes (*IT) against the
+                    packaged artifact in the integration-test/verify phases. Both
+                    receive the shared e2e config as environment variables so the
+                    app (and the tests) resolve them identically to a real run.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <systemPropertyVariables>
+                            <!-- Required by @QuarkusTest: JBoss LogManager must be
+                                 installed before JUL initializes, or tests error out. -->
+                            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                        </systemPropertyVariables>
+                        <environmentVariables>
+                            <E2EAPP_HTTP2>${e2e.http2}</E2EAPP_HTTP2>
+                            <E2EAPP_WSGW_HOST>${e2e.wsgw.host}</E2EAPP_WSGW_HOST>
+                            <E2EAPP_WSGW_PORT>${e2e.wsgw.port}</E2EAPP_WSGW_PORT>
+                        </environmentVariables>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${failsafe-plugin.version}</version>
+                    <configuration>
+                        <systemPropertyVariables>
+                            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                            <!--
+                                @QuarkusIntegrationTest launches the *packaged* app as a
+                                separate process, so failsafe's own <environmentVariables>
+                                do not reach it. Quarkus forwards quarkus.test.env.* as
+                                environment variables into that launched process, which is
+                                how the app's required E2EAPP_* config gets there.
+                            -->
+                            <quarkus.test.env.E2EAPP_HTTP2>${e2e.http2}</quarkus.test.env.E2EAPP_HTTP2>
+                            <quarkus.test.env.E2EAPP_WSGW_HOST>${e2e.wsgw.host}</quarkus.test.env.E2EAPP_WSGW_HOST>
+                            <quarkus.test.env.E2EAPP_WSGW_PORT>${e2e.wsgw.port}</quarkus.test.env.E2EAPP_WSGW_PORT>
+                            <quarkus.test.env.E2EAPP_PASSWORD_CREDENTIALS>${e2e.password.credentials}</quarkus.test.env.E2EAPP_PASSWORD_CREDENTIALS>
+                        </systemPropertyVariables>
+                        <environmentVariables>
+                            <E2EAPP_HTTP2>${e2e.http2}</E2EAPP_HTTP2>
+                            <E2EAPP_WSGW_HOST>${e2e.wsgw.host}</E2EAPP_WSGW_HOST>
+                            <E2EAPP_WSGW_PORT>${e2e.wsgw.port}</E2EAPP_WSGW_PORT>
+                        </environmentVariables>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+            </resource>
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>META-INF/build-info.properties</include>
+                </includes>
+            </resource>
+        </resources>
+
+        <plugins>
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>get-the-git-infos</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
+                    <generateGitPropertiesFile>false</generateGitPropertiesFile>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>io.quarkus.platform</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Activate failsafe so *IT (@QuarkusIntegrationTest) classes run;
+                 version, env vars and execution bindings come from the pluginManagement above. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -8,10 +8,15 @@
 #          amend loop, a fast sequence) thus collapses into a single run of
 #          the state you actually ended up at, rather than one run per commit
 #          for commits you have already left behind.
+#          Runs only the e2e modules when nothing that feeds the gateway's
+#          build changed since the nearest ancestor that passed (see
+#          FULL_SUITE_PATHS in config); otherwise the whole suite.
 #
-#        run.sh <commit-sha> [trigger-label]
-#          Explicit request: runs that commit unconditionally, even if it has
-#          been tested before. For re-running a suspected-flaky failure.
+#        run.sh <commit> [trigger-label]
+#          Explicit request: runs the whole suite on that commit (a SHA, or a
+#          ref such as HEAD) unconditionally, even if it has been tested before.
+#          For re-running a suspected-flaky failure, or for giving the day's
+#          narrowed runs a passing base ahead of time. Runs in the foreground.
 set -euo pipefail
 
 # A hook invocation runs with GIT_DIR/GIT_INDEX_FILE/etc set for the git
@@ -19,21 +24,32 @@ set -euo pipefail
 # below once it operates on a second worktree's own paths.
 unset $(git rev-parse --local-env-vars)
 
-export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-export PATH="$JAVA_HOME/bin:$HOME/.sdkman/candidates/maven/current/bin:$PATH"
+# Prefer sdkman's tools where sdkman is installed; elsewhere (e.g. distro-packaged
+# JDK and Maven) keep whatever the environment provides, since a JAVA_HOME
+# pointing at a missing directory makes mvn refuse to start.
+SDKMAN_CANDIDATES="$HOME/.sdkman/candidates"
+if [ -d "$SDKMAN_CANDIDATES/java/current" ]; then
+  export JAVA_HOME="$SDKMAN_CANDIDATES/java/current"
+  export PATH="$JAVA_HOME/bin:$SDKMAN_CANDIDATES/maven/current/bin:$PATH"
+fi
 
 SHA=""
+EXPLICIT=false
 case "${1:?commit sha, or --worktree <path>, required}" in
   --worktree)
     REQUESTER="${2:?worktree path required}"
     TRIGGER="${3:-manual}"
     ;;
   *)
-    SHA="$1"
+    # Resolved here, so the index records a SHA even when given a ref like HEAD;
+    # narrowed runs look their base up by SHA.
+    SHA="$(git rev-parse --verify "$1^{commit}")"
+    EXPLICIT=true
     REQUESTER="$(git rev-parse --show-toplevel)"
     TRIGGER="${2:-manual}"
     ;;
 esac
+. "$REQUESTER/scripts/ci/config"
 WORKTREE_NAME="$(basename "$REQUESTER")"
 
 CI_HOME="${WSGW_CI_HOME:-/tmp/wsgw-ci}"
@@ -90,6 +106,27 @@ PENDING_FILE="$PENDING_DIR/$(printf '%s' "$REQUESTER" | tr / _).$$"
     BRANCH="$(git -C "$REQUESTER" for-each-ref --points-at "$SHA" --format='%(refname:short)' refs/heads | head -1)"
     BRANCH="${BRANCH:-(detached)}"
   fi
+  # A passing narrowed run is a valid base for the next one: its gateway code is
+  # unchanged since a full green run. A failed run is never a base, so whatever
+  # it changed is still counted by the next run's diff.
+  SCOPE=full
+  BASE=""
+  # A worktree whose config predates these settings always gets the whole suite.
+  # The ancestor search is bounded; past 200 commits a full run is due anyway.
+  if [ "$EXPLICIT" = false ] && [ -f "$INDEX_FILE" ] \
+     && [ -n "${FULL_SUITE_PATHS:-}" ] && [ -n "${E2E_MODULES:-}" ]; then
+    BASE="$(git -C "$REQUESTER" rev-list --first-parent -n 200 "$SHA^" 2>/dev/null \
+      | grep -m1 -Fx -f <(awk -F'\t' '$6 == "PASS" { print $2 }' "$INDEX_FILE") || true)"
+    if [ -n "$BASE" ] \
+       && [ -z "$(git -C "$REQUESTER" diff --name-only "$BASE" "$SHA" -- $FULL_SUITE_PATHS)" ]; then
+      SCOPE=e2e
+    fi
+  fi
+  MVN_ARGS=()
+  if [ "$SCOPE" = e2e ]; then
+    MVN_ARGS=(-pl "${E2E_MODULES// /,}" -am)
+  fi
+
   SUBJECT="$(git -C "$REQUESTER" log -1 --format=%s "$SHA")"
   [ "${#SUBJECT}" -gt 72 ] && SUBJECT="${SUBJECT:0:69}..."
   TS="$(date +%Y%m%dT%H%M%S)"
@@ -106,6 +143,8 @@ PENDING_FILE="$PENDING_DIR/$(printf '%s' "$REQUESTER" | tr / _).$$"
     echo "worktree=$WORKTREE_NAME"
     echo "worktree_path=$REQUESTER"
     echo "trigger=$TRIGGER"
+    echo "scope=$SCOPE"
+    [ -z "$BASE" ] || echo "base=$BASE"
     echo "started=$(date -Is)"
   } > "$RUN_DIR/meta.txt"
 
@@ -117,7 +156,7 @@ PENDING_FILE="$PENDING_DIR/$(printf '%s' "$REQUESTER" | tr / _).$$"
   git -C "$REQUESTER" worktree prune
   START=$(date +%s)
   if git -C "$REQUESTER" worktree add --detach "$WORKTREE_DIR" "$SHA" >> "$RUN_DIR/log.txt" 2>&1 \
-     && (cd "$WORKTREE_DIR" && mvn -B verify) >> "$RUN_DIR/log.txt" 2>&1
+     && (cd "$WORKTREE_DIR" && mvn -B verify "${MVN_ARGS[@]}") >> "$RUN_DIR/log.txt" 2>&1
   then
     echo PASS > "$RUN_DIR/status"
   else
@@ -133,6 +172,6 @@ PENDING_FILE="$PENDING_DIR/$(printf '%s' "$REQUESTER" | tr / _).$$"
   echo "finished=$(date -Is)" >> "$RUN_DIR/meta.txt"
   echo "duration=$((END - START))s" >> "$RUN_DIR/meta.txt"
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\n' \
-    "$(date -Is)" "$SHA" "$SUBJECT" "$BRANCH" "$WORKTREE_NAME" "$(cat "$RUN_DIR/status")" "$((END - START))" "$RUN_DIR" >> "$INDEX_FILE"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\t%s\n' \
+    "$(date -Is)" "$SHA" "$SUBJECT" "$BRANCH" "$WORKTREE_NAME" "$(cat "$RUN_DIR/status")" "$((END - START))" "$RUN_DIR" "$SCOPE" >> "$INDEX_FILE"
 ) 9>"$LOCK_FILE"

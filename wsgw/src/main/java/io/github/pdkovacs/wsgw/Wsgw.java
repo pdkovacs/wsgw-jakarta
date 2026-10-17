@@ -10,6 +10,7 @@ import io.github.pdkovacs.wsgw.routehandlers.ConnectionRequest;
 import io.github.pdkovacs.wsgw.routehandlers.DisconnectRequest;
 import io.github.pdkovacs.wsgw.routehandlers.MessageRequest;
 import io.github.pdkovacs.wsgw.socket.WsListener;
+import io.github.pdkovacs.wsgw.version.VersionServlet;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
@@ -53,7 +54,7 @@ public class Wsgw {
     public int start() throws Exception {
         tomcat = new Tomcat();
         tomcat.setBaseDir(configuration.getBaseDir().toAbsolutePath().toString());
-        tomcat.setPort(0);
+        tomcat.setPort(configuration.getServerPort());
         tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
         var appwardRequest = new Request(configuration.getAppBaseUrl());
@@ -71,6 +72,8 @@ public class Wsgw {
         tomcat.getConnector().addUpgradeProtocol(http2Protocol);
 
         Context ctx = tomcat.addContext("", null);
+
+        Tomcat.addServlet(ctx, "get-version", new VersionServlet(Wsgw.class)).addMapping(VersionServlet.PATH);
 
         // A bare addContext() has no servlet, so requests 404 before any filter
         // (including Tomcat's WsFilter) runs. Anchor the chain with a default servlet.
@@ -141,6 +144,12 @@ public class Wsgw {
                 WsgwPaths.CONNECT_FROM_CLIENT);
         addFilter(ctx, new MessageRequest(wsConnections), WsgwPaths.MESSAGE_FROM_APP.concat("/*"));
         addFilter(ctx, new DisconnectRequest(wsConnections), WsgwPaths.DISCONNECT_FROM_APP.concat("/*"));
+    }
+
+    // Blocks until stop(). Tomcat's connector threads are daemons, so a main() that
+    // returns right after start() lets the JVM exit
+    public void await() {
+        tomcat.getServer().await();
     }
 
     public void stop() {
