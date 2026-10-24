@@ -4,6 +4,7 @@ import io.github.pdkovacs.wsgw.Configuration;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * failures are collected, and we assert on the aggregate rate. Delivery correctness is still
  * every push that got an OK response must reach its inbox.
  */
+@Tag("slow")
 @ExtendWith(MessageStressIT.StressStatsOnFailure.class)
 public class MessageStressIT {
 

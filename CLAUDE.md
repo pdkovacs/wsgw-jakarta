@@ -40,14 +40,16 @@ is empty. Do not read that as "no CI installed"; check `git config core.hooksPat
   in one of two scopes. Read the script rather than assuming.
   - **e2e**: a hook-triggered run builds only `E2E_MODULES` (with `-am`) when nothing under
     `FULL_SUITE_PATHS` (gateway, contract, common, root POM; both in `scripts/ci/config`) changed
-    since the nearest first-parent ancestor that passed. Such a green run still means "the whole
+    since the nearest first-parent ancestor that passed. Such a green run still means "the local
     suite is green": e2e passed, and the gateway is unchanged since a green full run.
   - **full**: every other run, including any explicit `scripts/ci/run.sh <commit>`. Running
     `scripts/ci/run.sh HEAD` at the start of a day (it runs in the foreground) gives the day's
     e2e commits a passing base.
 
-  As more stress-style tests land this may split into tiers, and at that point a green run stops
-  implying the slow ones passed.
+  Scope picks modules, not tiers: every run, explicit ones included, skips tests tagged with
+  `EXCLUDED_GROUPS` in `scripts/ci/config` (currently `slow`, e.g. `MessageStressIT`). So a green
+  run says nothing about the slow tier; that is left to a full-cycle pipeline. Override with
+  `WSGW_CI_EXCLUDED_GROUPS= scripts/ci/run.sh HEAD` to run everything locally.
 - **When**: on `post-commit`, `post-merge` and `post-rewrite`, gated on `WATCH_PATHS` in
   `scripts/ci/config` (currently `wsgw e2e wsgw-contract wsgw-common`). A commit touching only
   docs triggers nothing, so silence there does not mean "still running". `post-commit`

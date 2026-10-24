@@ -10,11 +10,12 @@
 #          for commits you have already left behind.
 #          Runs only the e2e modules when nothing that feeds the gateway's
 #          build changed since the nearest ancestor that passed (see
-#          FULL_SUITE_PATHS in config); otherwise the whole suite.
+#          FULL_SUITE_PATHS in config); otherwise every module.
 #
 #        run.sh <commit> [trigger-label]
-#          Explicit request: runs the whole suite on that commit (a SHA, or a
+#          Explicit request: runs every module on that commit (a SHA, or a
 #          ref such as HEAD) unconditionally, even if it has been tested before.
+#          Either way, tests tagged with EXCLUDED_GROUPS (see config) are skipped.
 #          For re-running a suspected-flaky failure, or for giving the day's
 #          narrowed runs a passing base ahead of time. Runs in the foreground.
 set -euo pipefail
@@ -125,6 +126,9 @@ PENDING_FILE="$PENDING_DIR/$(printf '%s' "$REQUESTER" | tr / _).$$"
   MVN_ARGS=()
   if [ "$SCOPE" = e2e ]; then
     MVN_ARGS=(-pl "${E2E_MODULES// /,}" -am)
+  fi
+  if [ -n "${EXCLUDED_GROUPS:-}" ]; then
+    MVN_ARGS+=(-DexcludedGroups="$EXCLUDED_GROUPS")
   fi
 
   SUBJECT="$(git -C "$REQUESTER" log -1 --format=%s "$SHA")"
