@@ -91,7 +91,7 @@ wsgw-e2eapp/
 │   ├── pom.xml
 │   └── src/main/
 │       ├── java/io/github/pdkovacs/wsgw/refapp/
-│       │   ├── config/        AppConfig, PasswordCredentials, ConnectionTrackingConfig
+│       │   ├── config/        AppConfig, ConnectionTrackingConfig
 │       │   ├── common/        DTOs + wsgw path/header constants
 │       │   ├── http/          JAX-RS resources + filters
 │       │   ├── security/      UserService, UserInfo

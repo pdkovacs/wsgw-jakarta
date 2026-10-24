@@ -1,5 +1,7 @@
 package io.github.pdkovacs.wsgw.e2e.client;
 
+import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
+import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthenticator;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.version.VersionServlet;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -9,6 +11,10 @@ import org.apache.catalina.startup.Tomcat;
 import org.apache.coyote.http2.Http2Protocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Set;
+
+import static io.github.pdkovacs.wsgw.web.TomcatFilters.addFilter;
 
 public class Client {
     private static final CtxLogger logger = CtxLogger.of(Client.class);
@@ -42,12 +48,15 @@ public class Client {
 
         Context ctx = tomcat.addContext("", null);
 
-        Tomcat.addServlet(ctx, "get-version", new VersionServlet(Client.class)).addMapping(VersionServlet.PATH);
+        var authenticator = new BasicAuthenticator(config.getPasswordCredentials());
+        var authnFilter = new BasicAuthHttpFilter(authenticator, Set.of("get-version"));
+        addFilter(ctx, authnFilter, "/*");
 
-        // A bare addContext() has no servlet, so requests 404 before any filter
-        // (including Tomcat's WsFilter) runs. Anchor the chain with a default servlet.
+        // unknown paths get 401 instead of 404, so an unauthenticated caller can't tell which paths exist
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
+
+        Tomcat.addServlet(ctx, "get-version", new VersionServlet(Client.class)).addMapping(VersionServlet.PATH);
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();

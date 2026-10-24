@@ -1,7 +1,7 @@
 package io.github.pdkovacs.wsgw.e2e.app.security;
 
 import io.github.pdkovacs.wsgw.e2e.app.config.AppConfig;
-import io.github.pdkovacs.wsgw.e2e.app.config.PasswordCredentials;
+import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.List;

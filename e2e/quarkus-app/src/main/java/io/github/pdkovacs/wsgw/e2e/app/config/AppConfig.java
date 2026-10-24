@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.e2e.app.config;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.pdkovacs.wsgw.e2e.app.common.wsgw.WsgwLocator;
+import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;

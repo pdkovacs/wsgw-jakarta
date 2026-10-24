@@ -20,6 +20,11 @@
             <artifactId>wsgw-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.github.pdkovacs</groupId>
+            <artifactId>wsgw-e2e-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- Version from the jackson-bom in e2e/pom.xml -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

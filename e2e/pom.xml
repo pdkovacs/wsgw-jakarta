@@ -17,6 +17,7 @@
     <description>End-to-end test harness for the wsgw gateway: the apps behind it and the client in front.</description>
 
     <modules>
+        <module>common</module>
         <module>app</module>
         <module>client</module>
         <module>quarkus-app</module>

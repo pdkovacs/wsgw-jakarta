@@ -1,7 +1,9 @@
 package io.github.pdkovacs.wsgw.e2e.app;
 
+import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.version.VersionServlet;
+import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthenticator;
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.startup.Tomcat;
@@ -9,6 +11,11 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.coyote.http2.Http2Protocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Set;
+
+import static io.github.pdkovacs.wsgw.e2e.app.ApiRoutes.bindApiRoutes;
+import static io.github.pdkovacs.wsgw.web.TomcatFilters.addFilter;
 
 public class App {
     private static final CtxLogger logger = CtxLogger.of(App.class);
@@ -45,11 +52,13 @@ public class App {
         Tomcat.addServlet(ctx, "get-version", new VersionServlet(ApiRoutes.class))
                 .addMapping(VersionServlet.PATH);
 
-        var apiRoutes = new ApiRoutes();
-        apiRoutes.bind(config, ctx);
+        var authenticator = new BasicAuthenticator(config.getPasswordCredentials());
+        var authnFilter = new BasicAuthHttpFilter(authenticator, Set.of("get-version"));
+        addFilter(ctx, authnFilter, "/*");
 
-        // A bare addContext() has no servlet, so requests 404 before any filter
-        // (including Tomcat's WsFilter) runs. Anchor the chain with a default servlet.
+        bindApiRoutes(config, ctx);
+
+        // unknown paths get 401 instead of 404, so an unauthenticated caller can't tell which paths exist
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 

@@ -3,18 +3,12 @@ package io.github.pdkovacs.wsgw.e2e.client;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.pdkovacs.wsgw.config.Env;
+import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 
 import java.nio.file.Path;
 import java.util.List;
 
 public class Config {
-
-    // -----------------------------------------------------------------------------
-    // --- value types ---
-    // -----------------------------------------------------------------------------
-
-    public record PasswordCredentials(String username, String password) {
-    }
 
     // -----------------------------------------------------------------------------
     // --- base ---
@@ -124,7 +118,9 @@ public class Config {
     private static List<PasswordCredentials> parsePasswordCredentials(String json) {
         List<PasswordCredentials> credentials;
         try {
-            credentials = new ObjectMapper().readValue(json, new TypeReference<List<PasswordCredentials>>() {});
+            credentials = new ObjectMapper().readValue(json, new TypeReference<List<PasswordCredentials>>() {
+
+            });
         } catch (Exception e) {
             throw new IllegalStateException(
                     "E2ECLI_PASSWORD_CREDENTIALS should be a JSON array of {username, password}", e);
