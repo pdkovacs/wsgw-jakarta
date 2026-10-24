@@ -11,7 +11,7 @@ FULL_SUITE_PATHS="wsgw wsgw-contract wsgw-common pom.xml"
 
 # Maven modules (paths) a narrowed run builds, with -am for what they depend on.
 # Space-separated; add new e2e modules here.
-E2E_MODULES="e2e/common e2e/app e2e/client e2e/quarkus-app"
+E2E_MODULES="e2e/common e2e/app e2e/driver e2e/quarkus-app"
 
 # JUnit tags excluded from every run, explicit ones included: local CI covers the
 # fast tiers, the slow ones are left to a full-cycle pipeline. Comma-separated.

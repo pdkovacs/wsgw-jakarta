@@ -6,9 +6,9 @@ includes:
     taskfile: ../../app/taskfile.yaml
     dir: ../../app
     internal: true
-  client:
-    taskfile: ../../client/taskfile.yaml
-    dir: ../../client
+  driver:
+    taskfile: ../../driver/taskfile.yaml
+    dir: ../../driver
     internal: true
 
 tasks:
@@ -21,11 +21,11 @@ tasks:
       - kubectl rollout restart deployment/wsgw-e2e-app
       - kubectl rollout status deployment/wsgw-e2e-app --timeout=120s
 
-  client:
-    desc: Build the e2e client's image and (re)deploy it into the current kubectl namespace
+  driver:
+    desc: Build the e2e driver's image and (re)deploy it into the current kubectl namespace
     cmds:
-      - task: client:image
-      - kubectl apply -f ./client/e2e-client.yaml
+      - task: driver:image
+      - kubectl apply -f ./driver/e2e-driver.yaml
       # The tag is the same on every build: restart so the pods pick up the new image
-      - kubectl rollout restart deployment/wsgw-e2e-client
-      - kubectl rollout status deployment/wsgw-e2e-client --timeout=120s
+      - kubectl rollout restart deployment/wsgw-e2e-driver
+      - kubectl rollout status deployment/wsgw-e2e-driver --timeout=120s
