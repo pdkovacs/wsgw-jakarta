@@ -10,9 +10,9 @@
         <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>wsgw-e2e-client</artifactId>
-    <name>wsgw :: e2e :: client</name>
-    <description>The e2e harness's client: drives the gateway from the client side.</description>
+    <artifactId>wsgw-e2e-driver</artifactId>
+    <name>wsgw :: e2e :: driver</name>
+    <description>The e2e harness's driver: drives the gateway from the client side.</description>
 
     <dependencies>
         <dependency>

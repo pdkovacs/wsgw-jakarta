@@ -1,39 +1,39 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wsgw-e2e-client
+  name: wsgw-e2e-driver
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: wsgw-e2e-client
+      app: wsgw-e2e-driver
   template:
     metadata:
       labels:
-        app: wsgw-e2e-client
+        app: wsgw-e2e-driver
         # Alloy derives Loki's "app" label from this one
-        app.kubernetes.io/name: wsgw-e2e-client
+        app.kubernetes.io/name: wsgw-e2e-driver
         service.type: application
     spec:
       containers:
-        - name: wsgw-e2e-client
-          image: wsgw-jakarta/e2e-client:dev
+        - name: wsgw-e2e-driver
+          image: wsgw-jakarta/e2e-driver:dev
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
           env:
-            - name: E2ECLI_SERVER_PORT
+            - name: E2EDRV_SERVER_PORT
               value: "8080"
-            - name: E2ECLI_PASSWORD_CREDENTIALS
+            - name: E2EDRV_PASSWORD_CREDENTIALS
               value: '[{"username":"test","password":"test"}]'
-            - name: E2ECLI_WSGW_HOST
+            - name: E2EDRV_WSGW_HOST
               value: "wsgw"
-            - name: E2ECLI_WSGW_PORT
+            - name: E2EDRV_WSGW_PORT
               value: "8080"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://alloy.monitoring.svc.cluster.local:4318
             - name: OTEL_SERVICE_NAME
-              value: e2e-client
+              value: e2e-driver
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: service.namespace=bitkit/wsgw
           resources:
@@ -45,10 +45,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: wsgw-e2e-client
+  name: wsgw-e2e-driver
 spec:
   selector:
-    app: wsgw-e2e-client
+    app: wsgw-e2e-driver
   ports:
     - protocol: TCP
       port: 8080

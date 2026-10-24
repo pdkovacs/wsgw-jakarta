@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.e2e.client;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.config.Otel;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -15,7 +15,7 @@ public class Main {
         CtxLogger logger = CtxLogger.of(Main.class);
 
         var otel = Otel.start();
-        var wsgw = new Client(Config.fromEnv(), OpenTelemetryMeterRegistry.builder(otel.sdk()).build());
+        var wsgw = new TestRunner(Config.fromEnv(), OpenTelemetryMeterRegistry.builder(otel.sdk()).build());
         try {
             int port = wsgw.start();
             // The one place both are released: on SIGTERM or System.exit, server first,

@@ -36,7 +36,7 @@ gateway.** The Quarkus app doesn't answer the routes the gateway calls
 (`relay-app-answers.md` §1.1); e2e-app's servlets do (§4). Anything else that changes
 behaviour (§6) comes afterwards, in separate commits.
 
-**Out of scope:** the e2e-client, runnable packaging and container images, the
+**Out of scope:** the e2e-driver, runnable packaging and container images, the
 DynamoDB/Valkey trackers, h2c.
 
 ## 2. What replaces what
@@ -126,7 +126,7 @@ design fails closed there too.
 
 ### 3.3 Where `CtxLogger` and `Env` live: `wsgw-common` (decided, revised 2026-10-18)
 
-Both are in a new `wsgw-common` module. The gateway, e2e-app and, later, the e2e-client
+Both are in a new `wsgw-common` module. The gateway, e2e-app and, later, the e2e-driver
 all run embedded Tomcat with SLF4J and read their configuration the same way, so they share
 one copy. `wsgw-contract` stays the wire contract only. The first decision (2026-10-17) was
 to copy both into e2e-app.

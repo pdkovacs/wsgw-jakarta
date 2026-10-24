@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.e2e.client;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthenticator;
@@ -16,15 +16,15 @@ import java.util.Set;
 
 import static io.github.pdkovacs.wsgw.web.TomcatFilters.addFilter;
 
-public class Client {
-    private static final CtxLogger logger = CtxLogger.of(Client.class);
-    private static final Logger log = LoggerFactory.getLogger(Client.class);
+public class TestRunner {
+    private static final CtxLogger logger = CtxLogger.of(TestRunner.class);
+    private static final Logger log = LoggerFactory.getLogger(TestRunner.class);
 
     private final Config config;
 
     private Tomcat tomcat;
 
-    public Client(Config config, MeterRegistry meterRegistry) {
+    public TestRunner(Config config, MeterRegistry meterRegistry) {
         this.config = config;
     }
 
@@ -56,7 +56,7 @@ public class Client {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
-        Tomcat.addServlet(ctx, "get-version", new VersionServlet(Client.class)).addMapping(VersionServlet.PATH);
+        Tomcat.addServlet(ctx, "get-version", new VersionServlet(TestRunner.class)).addMapping(VersionServlet.PATH);
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();

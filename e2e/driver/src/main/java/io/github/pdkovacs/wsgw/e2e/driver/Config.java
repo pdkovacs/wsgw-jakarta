@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.e2e.client;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,7 +55,7 @@ public class Config {
     }
 
     public Path getBaseDir() {
-        return baseDir != null ? baseDir : Path.of(System.getProperty("java.io.tmpdir"), "wsgw-e2e-client-tomcat");
+        return baseDir != null ? baseDir : Path.of(System.getProperty("java.io.tmpdir"), "wsgw-e2e-driver-tomcat");
     }
 
     public void setBaseDir(Path baseDir) {
@@ -104,14 +104,14 @@ public class Config {
 
     public static Config fromEnv(Env env) {
         var config = new Config();
-        config.setServerPort(env.intVar("E2ECLI_SERVER_PORT", config.getServerPort()));
-        config.setHttp2(env.booleanVar("E2ECLI_HTTP2", config.isHttp2()));
-        config.setBaseDir(env.pathVar("E2ECLI_BASE_DIR", null));
+        config.setServerPort(env.intVar("E2EDRV_SERVER_PORT", config.getServerPort()));
+        config.setHttp2(env.booleanVar("E2EDRV_HTTP2", config.isHttp2()));
+        config.setBaseDir(env.pathVar("E2EDRV_BASE_DIR", null));
 
-        config.setWsgwHost(env.required("E2ECLI_WSGW_HOST"));
-        config.setWsgwPort(env.requiredInt("E2ECLI_WSGW_PORT"));
+        config.setWsgwHost(env.required("E2EDRV_WSGW_HOST"));
+        config.setWsgwPort(env.requiredInt("E2EDRV_WSGW_PORT"));
 
-        config.setPasswordCredentials(parsePasswordCredentials(env.required("E2ECLI_PASSWORD_CREDENTIALS")));
+        config.setPasswordCredentials(parsePasswordCredentials(env.required("E2EDRV_PASSWORD_CREDENTIALS")));
         return config;
     }
 
@@ -123,10 +123,10 @@ public class Config {
             });
         } catch (Exception e) {
             throw new IllegalStateException(
-                    "E2ECLI_PASSWORD_CREDENTIALS should be a JSON array of {username, password}", e);
+                    "E2EDRV_PASSWORD_CREDENTIALS should be a JSON array of {username, password}", e);
         }
         if (credentials.isEmpty()) {
-            throw new IllegalStateException("E2ECLI_PASSWORD_CREDENTIALS must contain at least one entry");
+            throw new IllegalStateException("E2EDRV_PASSWORD_CREDENTIALS must contain at least one entry");
         }
         return credentials;
     }

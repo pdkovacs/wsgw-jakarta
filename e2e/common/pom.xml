@@ -12,10 +12,10 @@
 
     <artifactId>wsgw-e2e-common</artifactId>
     <name>wsgw :: e2e :: common</name>
-    <description>Plumbing shared by the e2e harness's app and client: HTTP Basic authentication. Plain JAR.</description>
+    <description>Plumbing shared by the e2e harness's app and driver: HTTP Basic authentication. Plain JAR.</description>
 
     <dependencies>
-        <!-- HttpFilter; app and client already have Tomcat, and quarkus-app uses only the
+        <!-- HttpFilter; app and driver already have Tomcat, and quarkus-app uses only the
              servlet-free part (version from the root POM's dependencyManagement) -->
         <dependency>
             <groupId>org.apache.tomcat.embed</groupId>
