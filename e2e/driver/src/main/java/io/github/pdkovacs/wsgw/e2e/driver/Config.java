@@ -94,6 +94,13 @@ public class Config {
         this.passwordCredentials = passwordCredentials;
     }
 
+    /**
+     * The one identity all test messages are sent with. For now it is also the first test user.
+     */
+    public PasswordCredentials getSenderCredentials() {
+        return passwordCredentials.getFirst();
+    }
+
     // -----------------------------------------------------------------------------
     // --- construction ---
     // -----------------------------------------------------------------------------

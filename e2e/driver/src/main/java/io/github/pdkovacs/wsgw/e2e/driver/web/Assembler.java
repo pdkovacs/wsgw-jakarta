@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.e2e.driver.web;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthenticator;
 import io.github.pdkovacs.wsgw.e2e.driver.Config;
+import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRun;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -62,7 +63,13 @@ public class Assembler {
         ctx.addServletMappingDecoded("/", "default");
 
         Tomcat.addServlet(ctx, "get-version", new VersionServlet(Assembler.class)).addMapping(VersionServlet.PATH);
-        Tomcat.addServlet(ctx, "get-version", new RunnerServlet(httpClient, new TestRunner(httpClient, config.getPasswordCredentials()))).addMapping(VersionServlet.PATH);
+        var testRunener = new TestRunner(
+                httpClient,
+                config.getPasswordCredentials(),
+                config.getSenderCredentials(),
+                Monitoring.noop());
+        Tomcat.addServlet(ctx, "get-version", new RunnerServlet(httpClient, testRunener))
+                .addMapping(VersionServlet.PATH);
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();

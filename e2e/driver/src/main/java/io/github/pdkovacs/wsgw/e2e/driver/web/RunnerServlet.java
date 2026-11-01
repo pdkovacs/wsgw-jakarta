@@ -33,12 +33,24 @@ public class RunnerServlet extends HttpServlet {
             return;
         }
 
+        final int messageCount;
+        String messageCountParam = req.getParameter("message-count");
         try {
-            String runId = testRunner.createStartTestRun(userCount);
+            // One message per user unless asked otherwise
+            messageCount = messageCountParam == null ? userCount : Integer.parseInt(messageCountParam);
+        } catch (NumberFormatException e) {
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "message-count must be an integer");
+            return;
+        }
+
+        try {
+            String runId = testRunner.createStartTestRun(userCount, messageCount);
             resp.setContentType("text/plain");
             resp.setCharacterEncoding("UTF-8");
             resp.setStatus(HttpServletResponse.SC_ACCEPTED);
             resp.getWriter().write(runId);
+        } catch (IllegalArgumentException e) {
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
             logger.error("Exception in RunnerServlet", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);

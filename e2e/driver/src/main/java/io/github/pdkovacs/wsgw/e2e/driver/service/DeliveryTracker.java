@@ -40,7 +40,7 @@ public class DeliveryTracker {
             return null;
         }
 
-        return msg.recipientServed(recipientName) == 0
+        return msg.setRecipientServed(recipientName) == 0
                 ? msg
                 : null;
     }
