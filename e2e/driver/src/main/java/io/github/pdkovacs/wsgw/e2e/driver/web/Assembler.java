@@ -63,13 +63,14 @@ public class Assembler {
         ctx.addServletMappingDecoded("/", "default");
 
         Tomcat.addServlet(ctx, "get-version", new VersionServlet(Assembler.class)).addMapping(VersionServlet.PATH);
-        var testRunener = new TestRunner(
+        var testRunner = new TestRunner(
                 httpClient,
+                config.getWsgwUri(),
                 config.getPasswordCredentials(),
                 config.getSenderCredentials(),
                 Monitoring.noop());
-        Tomcat.addServlet(ctx, "get-version", new RunnerServlet(httpClient, testRunener))
-                .addMapping(VersionServlet.PATH);
+        Tomcat.addServlet(ctx, "run", new RunnerServlet(httpClient, testRunner))
+                .addMapping(RunnerServlet.PATH);
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();

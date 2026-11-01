@@ -82,6 +82,10 @@ public class Config {
         this.wsgwPort = wsgwPort;
     }
 
+    public String getWsgwUri() {
+        return "%s:%d".formatted(wsgwHost, wsgwPort);
+    }
+
     // -----------------------------------------------------------------------------
     // --- authentication ---
     // -----------------------------------------------------------------------------

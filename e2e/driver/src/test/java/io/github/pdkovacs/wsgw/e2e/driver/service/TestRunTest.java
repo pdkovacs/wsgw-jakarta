@@ -1,11 +1,15 @@
 package io.github.pdkovacs.wsgw.e2e.driver.service;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
+import io.github.pdkovacs.wsgw.e2e.driver.FakeWsServer;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.IntSummaryStatistics;
 import java.util.List;
 import java.util.Random;
@@ -97,13 +101,56 @@ class TestRunTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void runConnectsItsUsersCreatesTheMessagesThenClosesTheSessions() throws Exception {
+        var messagesCreated = new AtomicInteger();
+        try (var gateway = new FakeWsServer(); var http = HttpClient.newHttpClient()) {
+            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, credentials(5),
+                    new PasswordCredentials("sender", "secret"), countingCreatedMessages(messagesCreated));
+
+            run.run();
+
+            assertThat(gateway.requests)
+                    .allSatisfy(request -> assertThat(request.requestLine()).startsWith("GET /connect "))
+                    .extracting(request -> request.headers().get("authorization"))
+                    .containsExactlyInAnyOrder(authorization("user1"), authorization("user2"), authorization("user3"));
+            assertThat(gateway.closes).hasValue(3);
+            assertThat(messagesCreated).hasValue(2);
+        }
+    }
+
+    @Test
+    void runEndsWithoutMessagesIfAUserCannotConnectButClosesTheOthersSessions() throws Exception {
+        var messagesCreated = new AtomicInteger();
+        try (var gateway = new FakeWsServer(); var http = HttpClient.newHttpClient()) {
+            gateway.rejectAuthorization(authorization("user2"));
+            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, credentials(3),
+                    new PasswordCredentials("sender", "secret"), countingCreatedMessages(messagesCreated));
+
+            run.run();
+
+            assertThat(gateway.requests).hasSize(3);
+            assertThat(gateway.closes).hasValue(2);
+            assertThat(messagesCreated).hasValue(0);
+        }
+    }
+
     // -----------------------------------------------------------------------------
     // --- helpers ---
     // -----------------------------------------------------------------------------
 
     private static TestRun testRun(int poolSize, int userCount, int messageCount, Monitoring monitoring) {
-        return TestRun.create(null, userCount, messageCount, credentials(poolSize),
+        return TestRun.create(null, "wsgw:8080", userCount, messageCount, credentials(poolSize),
                 new PasswordCredentials("sender", "secret"), monitoring);
+    }
+
+    private static Monitoring countingCreatedMessages(AtomicInteger messagesCreated) {
+        return new Monitoring(count -> {}, messagesCreated::incrementAndGet,
+                () -> {}, () -> {}, () -> {}, duration -> {}, duration -> {});
+    }
+
+    private static String authorization(String username) {
+        return "Basic " + Base64.getEncoder().encodeToString((username + ":secret").getBytes(StandardCharsets.UTF_8));
     }
 
     private static List<PasswordCredentials> credentials(int count) {

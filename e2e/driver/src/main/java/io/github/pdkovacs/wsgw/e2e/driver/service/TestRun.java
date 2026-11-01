@@ -9,6 +9,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 
@@ -28,18 +33,21 @@ public class TestRun implements Runnable {
     private static final int ALL_RECIPIENTS_UP_TO = 10;
 
     private final HttpClient httpClient;
+    private final String wsgwUri;
     private final String testRunId;
     private final List<PasswordCredentials> testUsers;
     private final int messageCount;
     private final PasswordCredentials senderCredentials;
     private final Monitoring monitoring;
+    private final DeliveryTracker deliveryTracker = new DeliveryTracker();
+    private final Map<String, Receiver> receivers = new ConcurrentHashMap<>();
 
-    private Map<String, Receiver> receivers;
     private List<Message> messages;
 
-    private TestRun(HttpClient httpClient, String testRunId, List<PasswordCredentials> testUsers, int messageCount,
-                    PasswordCredentials senderCredentials, Monitoring monitoring) {
+    private TestRun(HttpClient httpClient, String wsgwUri, String testRunId, List<PasswordCredentials> testUsers,
+                    int messageCount, PasswordCredentials senderCredentials, Monitoring monitoring) {
         this.httpClient = httpClient;
+        this.wsgwUri = wsgwUri;
         this.testRunId = testRunId;
         this.testUsers = testUsers;
         this.messageCount = messageCount;
@@ -56,7 +64,7 @@ public class TestRun implements Runnable {
      * @param messageCount how many messages are sent during the run
      * @throws IllegalArgumentException if either count is out of range
      */
-    public static TestRun create(HttpClient httpClient, int userCount, int messageCount,
+    public static TestRun create(HttpClient httpClient, String wsgwUri, int userCount, int messageCount,
                                  List<PasswordCredentials> allCredentials, PasswordCredentials senderCredentials,
                                  Monitoring monitoring) {
         if (userCount < 1 || userCount > allCredentials.size()) {
@@ -66,21 +74,29 @@ public class TestRun implements Runnable {
         if (messageCount < 1) {
             throw new IllegalArgumentException("message-count must be at least 1, got %d".formatted(messageCount));
         }
-        return new TestRun(httpClient, UUID.randomUUID().toString(), List.copyOf(allCredentials.subList(0, userCount)),
-                messageCount, senderCredentials, monitoring);
+        return new TestRun(httpClient, wsgwUri, UUID.randomUUID().toString(),
+                List.copyOf(allCredentials.subList(0, userCount)), messageCount, senderCredentials, monitoring);
     }
 
     public String getTestRunId() {
         return testRunId;
     }
 
+    /**
+     * If any user fails to connect, the run ends without creating messages, as they could never all
+     * be delivered. The sessions opened by then are closed either way.
+     */
     public void run() {
         try {
-            receivers = connectReceivers();
+            connectReceivers();
             messages = createMessages();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted while connecting to test run", e);
         } catch (Exception e) {
             logger.error("Exception occurred while connecting to test run", e);
         } finally {
+            closeSessions();
             logger.info("Test run finished" + testRunId);
         }
     }
@@ -94,8 +110,37 @@ public class TestRun implements Runnable {
         }
     }
 
-    private Map<String, Receiver> connectReceivers() {
-        return null;
+    /**
+     * Waits for every user's attempt to finish, then throws the first failure, if there was any.
+     */
+    private void connectReceivers() throws ExecutionException, InterruptedException {
+        List<Future<?>> attempts = new ArrayList<>(testUsers.size());
+        try (var connecting = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var user : testUsers) {
+                attempts.add(connecting.submit(() -> {
+                    var receiver = new Receiver(httpClient, wsgwUri, new LinkedBlockingQueue<>(), user,
+                            deliveryTracker, monitoring, testRunId);
+                    receiver.connectAndListen();
+                    receivers.put(user.username(), receiver);
+                    return null;
+                }));
+            }
+        }
+        for (var attempt : attempts) {
+            attempt.get();
+        }
+    }
+
+    private void closeSessions() {
+        try (var closing = Executors.newVirtualThreadPerTaskExecutor()) {
+            receivers.forEach((username, receiver) -> closing.submit(() -> {
+                try {
+                    receiver.closeSession();
+                } catch (Exception e) {
+                    logger.with("user", username).warn("Failed to close the session cleanly", e);
+                }
+            }));
+        }
     }
 
     // -----------------------------------------------------------------------------

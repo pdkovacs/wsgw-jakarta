@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class RunnerServlet extends HttpServlet {
 
+    public static final String PATH = "/run";
+
     private static final CtxLogger logger = CtxLogger.of(RunnerServlet.class);
 
     private final HttpClient httpClient;
@@ -24,7 +26,8 @@ public class RunnerServlet extends HttpServlet {
         this.testRunner = testRunner;
     }
 
-    public void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         final int userCount;
         try {
             userCount = Integer.parseInt(req.getParameter("user-count"));

@@ -7,8 +7,8 @@ public record Monitoring (
         Consumer<Integer> incMsgRecipientToReachCounter,
         Runnable incMsgCreatedCounter,
         Runnable incMsgParseErrCounter,
-        Runnable incOutstandingMsgNotFoundCoun,
-        Runnable incdMsgTextMismatchCounter,
+        Runnable incOutstandingMsgNotFoundCount,
+        Runnable incMsgTextMismatchCounter,
         Consumer<Duration> recordDeliveryDurationMs,
         Consumer<Duration> recordDeliveryDurationUs
 ) {
