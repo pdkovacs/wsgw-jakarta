@@ -1,9 +1,7 @@
-package io.github.pdkovacs.wsgw.e2e.driver.web;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthenticator;
-import io.github.pdkovacs.wsgw.e2e.driver.Config;
-import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRun;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -20,8 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.pdkovacs.wsgw.web.TomcatFilters.addFilter;
 
-public class Assembler {
-    private static final CtxLogger logger = CtxLogger.of(Assembler.class);
+public class Driver {
+    private static final CtxLogger logger = CtxLogger.of(Driver.class);
 
     private final ConcurrentHashMap<String, TestRun> testRuns = new ConcurrentHashMap<>();
     private final Config config;
@@ -29,7 +27,7 @@ public class Assembler {
 
     private Tomcat tomcat;
 
-    public Assembler(Config config, MeterRegistry meterRegistry) {
+    public Driver(Config config, MeterRegistry meterRegistry) {
         this.config = config;
         this.httpClient = HttpClient.newBuilder().build();
     }
@@ -62,7 +60,7 @@ public class Assembler {
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
 
-        Tomcat.addServlet(ctx, "get-version", new VersionServlet(Assembler.class)).addMapping(VersionServlet.PATH);
+        Tomcat.addServlet(ctx, "get-version", new VersionServlet(Driver.class)).addMapping(VersionServlet.PATH);
         var testRunner = new TestRunner(
                 httpClient,
                 config.getWsgwUri(),

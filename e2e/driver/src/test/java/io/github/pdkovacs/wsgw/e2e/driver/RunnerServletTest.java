@@ -1,8 +1,6 @@
-package io.github.pdkovacs.wsgw.e2e.driver.web;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
-import io.github.pdkovacs.wsgw.e2e.driver.FakeWsServer;
-import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import org.apache.catalina.Context;
 import org.apache.catalina.startup.Tomcat;

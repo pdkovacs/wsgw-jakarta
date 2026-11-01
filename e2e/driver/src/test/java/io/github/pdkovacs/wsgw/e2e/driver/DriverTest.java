@@ -1,8 +1,6 @@
-package io.github.pdkovacs.wsgw.e2e.driver.web;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
-import io.github.pdkovacs.wsgw.e2e.driver.Config;
-import io.github.pdkovacs.wsgw.e2e.driver.FakeWsServer;
 import io.github.pdkovacs.wsgw.version.VersionServlet;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -21,7 +19,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class AssemblerTest {
+class DriverTest {
 
     private static final String AUTHORIZATION = "Basic " + Base64.getEncoder()
             .encodeToString("user1:secret".getBytes(StandardCharsets.UTF_8));
@@ -32,7 +30,7 @@ class AssemblerTest {
     private final HttpClient http = HttpClient.newHttpClient();
 
     private FakeWsServer gateway;
-    private Assembler assembler;
+    private Driver driver;
     private int port;
 
     @BeforeEach
@@ -49,13 +47,13 @@ class AssemblerTest {
                 new PasswordCredentials("user1", "secret"),
                 new PasswordCredentials("user2", "secret")));
 
-        assembler = new Assembler(config, new SimpleMeterRegistry());
-        port = assembler.start();
+        driver = new Driver(config, new SimpleMeterRegistry());
+        port = driver.start();
     }
 
     @AfterEach
     void stop() throws Exception {
-        assembler.stop();
+        driver.stop();
         gateway.close();
     }
 

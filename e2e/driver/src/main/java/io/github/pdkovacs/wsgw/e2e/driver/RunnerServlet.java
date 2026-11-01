@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.e2e.driver.web;
+package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRun;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
