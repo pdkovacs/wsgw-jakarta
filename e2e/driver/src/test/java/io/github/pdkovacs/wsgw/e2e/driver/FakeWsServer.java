@@ -35,11 +35,17 @@ public final class FakeWsServer implements AutoCloseable {
 
     public final AtomicInteger accepts = new AtomicInteger();
     public final AtomicInteger closes = new AtomicInteger();
+    public final AtomicInteger abandonedHandshakes = new AtomicInteger();
     public final List<Request> requests = new CopyOnWriteArrayList<>();
     private final List<Socket> sockets = new CopyOnWriteArrayList<>();
     private final ServerSocket serverSocket;
     private final Set<String> rejectedAuthorizations = new CopyOnWriteArraySet<>();
     private volatile CountDownLatch frameGate = new CountDownLatch(0);
+    private volatile boolean ignoreHandshakes;
+    private volatile int closeStatusAfterHandshake;
+    private volatile boolean dropTcpAfterHandshake;
+    private volatile boolean dropTcpOnClientClose;
+    private volatile boolean invalidFrameAfterHandshake;
 
     public FakeWsServer() throws IOException {
         serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
@@ -71,6 +77,34 @@ public final class FakeWsServer implements AutoCloseable {
     /** From now on, handshakes with this {@code Authorization} header value get a 401. */
     public void rejectAuthorization(String authorization) {
         rejectedAuthorizations.add(authorization);
+    }
+
+    /**
+     * From now on, handshakes are read but never answered. {@link #abandonedHandshakes} counts the
+     * ones whose client has then dropped the TCP connection.
+     */
+    public void ignoreHandshakes() {
+        ignoreHandshakes = true;
+    }
+
+    /** From now on, the server closes each session itself, with this status, right after the 101. */
+    public void closeAfterHandshake(int statusCode) {
+        closeStatusAfterHandshake = statusCode;
+    }
+
+    /** From now on, the TCP connection is dropped right after the 101, with no close frame. */
+    public void dropTcpAfterHandshake() {
+        dropTcpAfterHandshake = true;
+    }
+
+    /** From now on, the client's close is answered by dropping the TCP connection, not by an echo. */
+    public void dropTcpOnClientClose() {
+        dropTcpOnClientClose = true;
+    }
+
+    /** From now on, right after the 101, the server sends a frame with a reserved opcode. */
+    public void sendInvalidFrameAfterHandshake() {
+        invalidFrameAfterHandshake = true;
     }
 
     @Override
@@ -112,6 +146,12 @@ public final class FakeWsServer implements AutoCloseable {
                 }
                 requests.add(new Request(requestLine, headers, socket.getPort()));
 
+                if (ignoreHandshakes) {
+                    in.transferTo(OutputStream.nullOutputStream()); // until the client drops the TCP connection
+                    abandonedHandshakes.incrementAndGet();
+                    return;
+                }
+
                 if (rejectedAuthorizations.contains(headers.get("authorization"))) {
                     out.write("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
                     out.flush();
@@ -147,6 +187,19 @@ public final class FakeWsServer implements AutoCloseable {
         }
         out.flush();
 
+        if (dropTcpAfterHandshake) {
+            return;
+        }
+        int closeStatus = closeStatusAfterHandshake;
+        if (closeStatus != 0) {
+            writeFrame(out, 0x8, new byte[]{(byte) (closeStatus >> 8), (byte) closeStatus});
+            out.flush();
+        }
+        if (invalidFrameAfterHandshake) {
+            writeFrame(out, 0x3, new byte[0]);
+            out.flush();
+        }
+
         while (true) {
             int b0 = in.read();
             if (b0 < 0) {
@@ -168,8 +221,10 @@ public final class FakeWsServer implements AutoCloseable {
             in.readNBytes((int) length);
             if ((b0 & 0x0f) == 0x8) {
                 closes.incrementAndGet();
-                writeFrame(out, 0x8, new byte[]{0x03, (byte) 0xe8}); // 1000, normal closure
-                out.flush();
+                if (!dropTcpOnClientClose && closeStatus == 0) { // with a closeStatus, this is the client's echo
+                    writeFrame(out, 0x8, new byte[]{0x03, (byte) 0xe8}); // 1000, normal closure
+                    out.flush();
+                }
                 return;
             }
         }

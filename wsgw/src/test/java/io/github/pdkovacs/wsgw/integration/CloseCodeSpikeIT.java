@@ -46,15 +46,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * clients will see 1013 — but the Tomcat-based test clients in this suite will not, and must
  * assert 1002 or read the reason phrase instead.
  * The endpoint closes from {@code onOpen}. That was shown to be equivalent to closing from a
- * message handler for 1013, and it keeps the probe to a single round trip.
+ * message handler for 1013, and it keeps the spike to a single round trip.
  * <p>
  * Codes are sent as raw ints via a custom {@link CloseReason.CloseCode} rather than through the
- * {@link CloseReason.CloseCodes} enum, so the probe measures the wire and not the enum's coverage
+ * {@link CloseReason.CloseCodes} enum, so the spike measures the wire and not the enum's coverage
  * (the enum has no constant for 1014).
  */
-public class CloseCodeProbeIT {
+public class CloseCodeSpikeIT {
 
-    private static final CtxLogger logger = CtxLogger.of(CloseCodeProbeIT.class);
+    private static final CtxLogger logger = CtxLogger.of(CloseCodeSpikeIT.class);
 
     /**
      * 1004/1005/1006/1015 are omitted: the RFC forbids putting them on the wire, so a rewrite

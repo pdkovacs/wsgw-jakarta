@@ -4,13 +4,17 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.ProtocolException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -21,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,7 +39,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Learning test: pins down how the JDK's {@code java.net.http} {@link HttpClient} and
+ * Spike: pins down how the JDK's {@code java.net.http} {@link HttpClient} and
  * {@link WebSocket} behave, as far as the driver relies on it. It runs against the hand-rolled
  * {@link FakeWsServer}, so it can count TCP accepts and see the raw handshake request. If a JDK
  * upgrade turns one of these red, revisit the driver's assumptions.
@@ -43,13 +48,23 @@ import static org.assertj.core.api.Assertions.assertThat;
  * callbacks off the common pool, so a listener must not block, whatever the executor. Blocked common
  * pool workers stall {@link WebSocket} openings across the whole JVM.
  *
+ * <p>How a session's end is reported, which shapes {@code WsClient}'s closing:
+ * <ul>
+ *   <li>{@link WebSocket#isOutputClosed()} inside {@code onClose} tells whether our close had been
+ *       sent by then. The status code can't: a server's own 1000 looks like the echo of ours.</li>
+ *   <li>A dropped TCP connection arrives in {@code onClose} as 1006, not in {@code onError}, which
+ *       is for failures like a protocol violation by the server.</li>
+ *   <li>Once a session has ended, {@link WebSocket#sendClose} fails, so closing has to check first.</li>
+ *   <li>{@link WebSocket#abort()} calls no listener callback.</li>
+ * </ul>
+ *
  * <p>{@link HttpClient#close()} blocks for as long as any of its WebSockets is open, so a test that
  * fails with one open would hang; the timeout's separate thread guards against that.
  */
 @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-class JdkWebSocketClientLearningTest {
+class JdkWebSocketClientSpikeTest {
 
-    private static final Logger log = LoggerFactory.getLogger(JdkWebSocketClientLearningTest.class);
+    private static final Logger log = LoggerFactory.getLogger(JdkWebSocketClientSpikeTest.class);
 
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
@@ -288,9 +303,142 @@ class JdkWebSocketClientLearningTest {
         }
     }
 
+    /**
+     * Covers a server that accepts the TCP connection, then stays silent. An unreachable host is not
+     * covered: that can't be set up portably here.
+     */
+    @Test
+    void connectTimeoutEndsAnUnansweredHandshakeAndDropsItsTcpConnection() throws Exception {
+        server.ignoreHandshakes();
+        try (var client = HttpClient.newHttpClient()) {
+            var opening = client.newWebSocketBuilder().connectTimeout(Duration.ofMillis(300))
+                    .buildAsync(server.wsUri(0), new SessionEndRecorder());
+
+            assertThat(opening).failsWithin(TIMEOUT)
+                    .withThrowableOfType(ExecutionException.class)
+                    .withCauseInstanceOf(HttpTimeoutException.class);
+        }
+        awaitUntil("the TCP connection to drop", () -> server.abandonedHandshakes.get() == 1);
+    }
+
+    @Test
+    void outputIsClosedInOnCloseWhenOurCloseWentFirst() throws Exception {
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            var ws = open(client, recorder);
+
+            ws.sendClose(WebSocket.NORMAL_CLOSURE, "");
+
+            assertThat(recorder.end()).isEqualTo(new SessionEnd(1000, null, true));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1000, 1001})
+    void outputIsStillOpenInOnCloseWhenTheServersCloseWentFirst(int statusCode) throws Exception {
+        server.closeAfterHandshake(statusCode);
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            open(client, recorder);
+
+            assertThat(recorder.end()).isEqualTo(new SessionEnd(statusCode, null, false));
+        }
+    }
+
+    @Test
+    void droppedTcpConnectionReachesOnCloseAs1006NotOnError() throws Exception {
+        server.dropTcpAfterHandshake();
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            open(client, recorder);
+
+            assertThat(recorder.end()).isEqualTo(new SessionEnd(1006, null, false));
+        }
+    }
+
+    @Test
+    void tcpConnectionDroppedWhileAwaitingTheEchoIs1006WithOutputClosed() throws Exception {
+        server.dropTcpOnClientClose();
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            var ws = open(client, recorder);
+
+            ws.sendClose(WebSocket.NORMAL_CLOSURE, "");
+
+            assertThat(recorder.end()).isEqualTo(new SessionEnd(1006, null, true));
+        }
+    }
+
+    @Test
+    void invalidFrameReachesOnError() throws Exception {
+        server.sendInvalidFrameAfterHandshake();
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            open(client, recorder);
+
+            var end = recorder.end();
+            assertThat(end.statusCode()).isNull();
+            assertThat(end.error()).isInstanceOf(ProtocolException.class);
+            assertThat(end.outputClosed()).isTrue();
+        }
+    }
+
+    @Test
+    void abortCallsNoListenerCallback() throws Exception {
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            var ws = open(client, recorder);
+
+            ws.abort();
+            Thread.sleep(300);
+
+            assertThat(recorder.ended).isNotDone();
+            assertThat(ws.isOutputClosed()).isTrue();
+        }
+    }
+
+    @Test
+    void sendCloseFailsAfterTheServerClosedTheSession() throws Exception {
+        server.closeAfterHandshake(1001);
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            var ws = open(client, recorder);
+            recorder.end();
+
+            assertSendCloseFailsOnceOutputHasClosed(ws);
+        }
+    }
+
+    @Test
+    void sendCloseFailsAfterTheTcpConnectionDropped() throws Exception {
+        server.dropTcpAfterHandshake();
+        try (var client = HttpClient.newHttpClient()) {
+            var recorder = new SessionEndRecorder();
+            var ws = open(client, recorder);
+            recorder.end();
+
+            assertSendCloseFailsOnceOutputHasClosed(ws);
+        }
+    }
+
     // -----------------------------------------------------------------------------
     // --- helpers ---
     // -----------------------------------------------------------------------------
+
+    private WebSocket open(HttpClient client, SessionEndRecorder recorder) throws Exception {
+        return client.newWebSocketBuilder().buildAsync(server.wsUri(0), recorder)
+                .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    /** Output closes shortly after {@code onClose} returns, so {@code sendClose} right away would race it. */
+    private static void assertSendCloseFailsOnceOutputHasClosed(WebSocket ws) throws InterruptedException {
+        awaitUntil("output to close", ws::isOutputClosed);
+
+        assertThat(ws.sendClose(WebSocket.NORMAL_CLOSURE, "")).failsWithin(TIMEOUT)
+                .withThrowableOfType(ExecutionException.class)
+                .withCauseInstanceOf(IOException.class)
+                .withMessageContaining("Output closed");
+    }
 
     /** Opens a WebSocket that receives {@code messages} texts, waits for them, closes it. */
     private Recorder exchange(HttpClient client, int messages, Recorder recorder) throws Exception {
@@ -358,6 +506,30 @@ class JdkWebSocketClientLearningTest {
                     : threadName.matches("HttpClient-\\d+-Worker-\\d+") ? "default-pool"
                     : "other";
             return "%s on %s %s".formatted(method, virtual ? "virtual" : "platform", kind);
+        }
+    }
+
+    /** {@code statusCode} comes from {@code onClose}, {@code error} from {@code onError}. */
+    record SessionEnd(Integer statusCode, Throwable error, boolean outputClosed) {
+    }
+
+    /** Overrides what {@code WsClient}'s listener does, so demand flows the same way as there. */
+    private static final class SessionEndRecorder implements WebSocket.Listener {
+        final CompletableFuture<SessionEnd> ended = new CompletableFuture<>();
+
+        @Override
+        public CompletionStage<?> onClose(WebSocket ws, int statusCode, String reason) {
+            ended.complete(new SessionEnd(statusCode, null, ws.isOutputClosed()));
+            return null;
+        }
+
+        @Override
+        public void onError(WebSocket ws, Throwable error) {
+            ended.complete(new SessionEnd(null, error, ws.isOutputClosed()));
+        }
+
+        SessionEnd end() throws Exception {
+            return ended.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         }
     }
 

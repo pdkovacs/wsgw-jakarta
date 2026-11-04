@@ -2,19 +2,24 @@ package io.github.pdkovacs.wsgw.e2e.driver.service;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
+import io.github.pdkovacs.wsgw.e2e.driver.service.DeliveryTracker.Result;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.random.RandomGenerator;
 
 /**
@@ -34,6 +39,7 @@ public class TestRun implements Runnable {
 
     private final HttpClient httpClient;
     private final String wsgwUri;
+    private final Duration timeout;
     private final String testRunId;
     private final List<PasswordCredentials> testUsers;
     private final int messageCount;
@@ -44,10 +50,12 @@ public class TestRun implements Runnable {
 
     private List<Message> messages;
 
-    private TestRun(HttpClient httpClient, String wsgwUri, String testRunId, List<PasswordCredentials> testUsers,
-                    int messageCount, PasswordCredentials senderCredentials, Monitoring monitoring) {
+    private TestRun(HttpClient httpClient, String wsgwUri, Duration timeout, String testRunId,
+                    List<PasswordCredentials> testUsers, int messageCount, PasswordCredentials senderCredentials,
+                    Monitoring monitoring) {
         this.httpClient = httpClient;
         this.wsgwUri = wsgwUri;
+        this.timeout = timeout;
         this.testRunId = testRunId;
         this.testUsers = testUsers;
         this.messageCount = messageCount;
@@ -65,8 +73,8 @@ public class TestRun implements Runnable {
      * @throws IllegalArgumentException if either count is out of range
      */
     public static TestRun create(HttpClient httpClient, String wsgwUri, int userCount, int messageCount,
-                                 List<PasswordCredentials> allCredentials, PasswordCredentials senderCredentials,
-                                 Monitoring monitoring) {
+                                 Duration timeout, List<PasswordCredentials> allCredentials,
+                                 PasswordCredentials senderCredentials, Monitoring monitoring) {
         if (userCount < 1 || userCount > allCredentials.size()) {
             throw new IllegalArgumentException(
                     "user-count must be between 1 and %d, got %d".formatted(allCredentials.size(), userCount));
@@ -74,7 +82,7 @@ public class TestRun implements Runnable {
         if (messageCount < 1) {
             throw new IllegalArgumentException("message-count must be at least 1, got %d".formatted(messageCount));
         }
-        return new TestRun(httpClient, wsgwUri, UUID.randomUUID().toString(),
+        return new TestRun(httpClient, wsgwUri, timeout, UUID.randomUUID().toString(),
                 List.copyOf(allCredentials.subList(0, userCount)), messageCount, senderCredentials, monitoring);
     }
 
@@ -87,17 +95,29 @@ public class TestRun implements Runnable {
      * be delivered. The sessions opened by then are closed either way.
      */
     public void run() {
+        final CompletableFuture<Result> allDeliveredPromise;
+        String stage = "initial";
         try {
+            stage = "connecting receivers";
             connectReceivers();
+
+            stage = "creating messages";
             messages = createMessages();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.error("Interrupted while connecting to test run", e);
+
+            allDeliveredPromise = deliveryTracker.allDelivered();
+
+            stage = "delivering messages";
+            startSendingMessage();
+
+            stage = "waiting for all messages to be delivered";
+            allDeliveredPromise.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            logger.info("Test run finished for {}: {}", testRunId, deliveryTracker.getResult());
+        } catch (TimeoutException e) {
+            logger.error("Timeout while {}: {}", stage, deliveryTracker.getResult(), e);
         } catch (Exception e) {
-            logger.error("Exception occurred while connecting to test run", e);
+            logger.error("Exception occurred while {}: {}", stage, deliveryTracker.getResult(), e);
         } finally {
             closeSessions();
-            logger.info("Test run finished" + testRunId);
         }
     }
 
@@ -118,16 +138,30 @@ public class TestRun implements Runnable {
         try (var connecting = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var user : testUsers) {
                 attempts.add(connecting.submit(() -> {
-                    var receiver = new Receiver(httpClient, wsgwUri, new LinkedBlockingQueue<>(), user,
-                            deliveryTracker, monitoring, testRunId);
-                    receiver.connectAndListen();
-                    receivers.put(user.username(), receiver);
-                    return null;
+                    try {
+                        var receiver = new Receiver(httpClient, wsgwUri, new LinkedBlockingQueue<>(), user,
+                                deliveryTracker, monitoring, testRunId);
+                        receiver.connectAndListen();
+                        receivers.put(user.username(), receiver);
+                        return null;
+                    } catch (Exception e) {
+                        logger.with("user", user.username()).with("testRunId", testRunId).error("Failed to connect", e);
+                        throw e;
+                    }
                 }));
             }
         }
+
+        int failures = 0;
         for (var attempt : attempts) {
-            attempt.get();
+            try {
+                attempt.get();
+            } catch (ExecutionException e) {
+                failures++; // already logged, with its user
+            }
+        }
+        if (failures > 0) {
+            throw new IllegalStateException("%d of %d users failed to connect".formatted(failures, attempts.size()));
         }
     }
 
@@ -143,6 +177,9 @@ public class TestRun implements Runnable {
         }
     }
 
+    private void startSendingMessage() {
+    }
+
     // -----------------------------------------------------------------------------
     // --- test data ---
     // -----------------------------------------------------------------------------
@@ -152,7 +189,9 @@ public class TestRun implements Runnable {
 
         List<Message> created = new ArrayList<>(messageCount);
         for (int i = 0; i < messageCount; i++) {
-            created.add(createMessage(recipientCandidates));
+            var message = createMessage(recipientCandidates);
+            created.add(message);
+            deliveryTracker.addDelivery(message);
         }
         return created;
     }
