@@ -16,6 +16,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -44,9 +45,9 @@ class RunnerServletTest {
         gateway = new FakeWsServer();
         var testRunner = new TestRunner(http, gateway.hostAndPort(), POOL, POOL.getFirst(), Monitoring.noop()) {
             @Override
-            public String createStartTestRun(int userCount, int messageCount) {
+            public String createStartTestRun(int userCount, int messageCount, Duration duration) {
                 requestedCounts.set(new Counts(userCount, messageCount));
-                return super.createStartTestRun(userCount, messageCount);
+                return super.createStartTestRun(userCount, messageCount, duration);
             }
         };
 
@@ -68,13 +69,13 @@ class RunnerServletTest {
 
     @Test
     void messageCountDefaultsToUserCount() throws Exception {
-        assertThat(post("user-count=2").statusCode()).isEqualTo(202);
+        assertThat(post("user-count=2&duration=PT30S").statusCode()).isEqualTo(202);
         assertThat(requestedCounts).hasValue(new Counts(2, 2));
     }
 
     @Test
     void messageCountOverridesTheDefault() throws Exception {
-        assertThat(post("user-count=2&message-count=7").statusCode()).isEqualTo(202);
+        assertThat(post("user-count=2&message-count=7&duration=PT30S").statusCode()).isEqualTo(202);
         assertThat(requestedCounts).hasValue(new Counts(2, 7));
     }
 

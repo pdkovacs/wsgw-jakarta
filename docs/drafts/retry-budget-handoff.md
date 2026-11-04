@@ -63,7 +63,7 @@ count of two proves the share granted it.
    | 2nd | 10 | 1 | 2 ≤ floor(2.2) = 2 | granted |
    | 3rd | 11 | 2 | 3 ≤ floor(2.4) = 2 → fails | dropped |
 
-   Any warm-up from 7 to 10 gives the same outcome. 8 stays clear of the `floor`
+   Any warm-up from 7 to 10 gives the same result. 8 stays clear of the `floor`
    boundaries on both sides.
 3. Assert literal values: `relayRetries == 2`, `budgetDropCount == 1`,
    `retryExhaustions == 0`. Derive nothing from the config.

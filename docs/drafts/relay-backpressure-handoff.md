@@ -33,9 +33,9 @@ So §2.5.1's enqueue-timeout row and the §5.6 row for it are `[partial]`, not
 `offer`'s `boolean` return is discarded. On expiry the frame vanishes — no close,
 no metric, no log. That is action **#3 (drop frames)**, which §2.5.1 listed on
 09-12 as the last resort the message contract does not tolerate, arrived at as
-the default outcome.
+the default result.
 
-*Revised 09-13 under decision L:* the drop itself is now the intended outcome.
+*Revised 09-13 under decision L:* the drop itself is now the intended result.
 What is missing is observing it: a metric and a log when `offer` returns
 `false`. The drop is *not* caused by using `offer` instead of `put`.
 

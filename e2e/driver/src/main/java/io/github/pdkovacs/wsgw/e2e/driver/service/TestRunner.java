@@ -4,6 +4,7 @@ import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 
 public class TestRunner {
@@ -27,9 +28,9 @@ public class TestRunner {
      *
      * @throws IllegalArgumentException if either count is out of range
      */
-    public String createStartTestRun(int userCount, int messageCount) {
-        var testRun = TestRun.create(httpClient, wsgwUri, userCount, messageCount, allCredentials, senderCredentials,
-                monitoring);
+    public String createStartTestRun(int userCount, int messageCount, Duration timeout) {
+        var testRun = TestRun.create(httpClient, wsgwUri, userCount, messageCount, timeout,
+                allCredentials, senderCredentials, monitoring);
         testRun.start();
         return testRun.getTestRunId();
     }

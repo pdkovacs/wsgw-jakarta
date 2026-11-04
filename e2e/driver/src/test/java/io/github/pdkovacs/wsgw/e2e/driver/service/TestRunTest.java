@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.IntSummaryStatistics;
 import java.util.List;
@@ -60,7 +61,12 @@ class TestRunTest {
         var messagesCreated = new AtomicInteger();
         var recipientsToReach = new AtomicInteger();
         var monitoring = new Monitoring(recipientsToReach::addAndGet, messagesCreated::incrementAndGet,
-                () -> {}, () -> {}, () -> {}, duration -> {}, duration -> {});
+                () -> {
+                }, () -> {
+        }, () -> {
+        }, duration -> {
+        }, duration -> {
+        });
 
         testRun(5, 4, 3, monitoring).createMessages();
 
@@ -105,7 +111,7 @@ class TestRunTest {
     void runConnectsItsUsersCreatesTheMessagesThenClosesTheSessions() throws Exception {
         var messagesCreated = new AtomicInteger();
         try (var gateway = new FakeWsServer(); var http = HttpClient.newHttpClient()) {
-            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, credentials(5),
+            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, Duration.ofSeconds(1), credentials(5),
                     new PasswordCredentials("sender", "secret"), countingCreatedMessages(messagesCreated));
 
             run.run();
@@ -124,7 +130,7 @@ class TestRunTest {
         var messagesCreated = new AtomicInteger();
         try (var gateway = new FakeWsServer(); var http = HttpClient.newHttpClient()) {
             gateway.rejectAuthorization(authorization("user2"));
-            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, credentials(3),
+            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, Duration.ofSeconds(1), credentials(3),
                     new PasswordCredentials("sender", "secret"), countingCreatedMessages(messagesCreated));
 
             run.run();
@@ -140,13 +146,19 @@ class TestRunTest {
     // -----------------------------------------------------------------------------
 
     private static TestRun testRun(int poolSize, int userCount, int messageCount, Monitoring monitoring) {
-        return TestRun.create(null, "wsgw:8080", userCount, messageCount, credentials(poolSize),
+        return TestRun.create(null, "wsgw:8080", userCount, messageCount, Duration.ofSeconds(1), credentials(poolSize),
                 new PasswordCredentials("sender", "secret"), monitoring);
     }
 
     private static Monitoring countingCreatedMessages(AtomicInteger messagesCreated) {
-        return new Monitoring(count -> {}, messagesCreated::incrementAndGet,
-                () -> {}, () -> {}, () -> {}, duration -> {}, duration -> {});
+        return new Monitoring(count -> {
+        }, messagesCreated::incrementAndGet,
+                () -> {
+                }, () -> {
+        }, () -> {
+        }, duration -> {
+        }, duration -> {
+        });
     }
 
     private static String authorization(String username) {

@@ -1,6 +1,5 @@
 package io.github.pdkovacs.wsgw.e2e.driver;
 
-import io.github.pdkovacs.wsgw.e2e.driver.service.TestRun;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.ServletException;
@@ -10,7 +9,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
-import java.util.concurrent.atomic.AtomicReference;
+import java.time.Duration;
+import java.time.format.DateTimeParseException;
 
 public class RunnerServlet extends HttpServlet {
 
@@ -46,8 +46,17 @@ public class RunnerServlet extends HttpServlet {
             return;
         }
 
+        final Duration timeout;
         try {
-            String runId = testRunner.createStartTestRun(userCount, messageCount);
+            // ISO-8601 duration, e.g. PT30S or PT2M
+            timeout = Duration.parse(req.getParameter("duration"));
+        } catch (DateTimeParseException | NullPointerException e) { // NPE: missing parameter
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "duration must be an ISO-8601 duration, e.g. PT30S");
+            return;
+        }
+
+        try {
+            String runId = testRunner.createStartTestRun(userCount, messageCount, timeout);
             resp.setContentType("text/plain");
             resp.setCharacterEncoding("UTF-8");
             resp.setStatus(HttpServletResponse.SC_ACCEPTED);

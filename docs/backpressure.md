@@ -960,7 +960,7 @@ draining a bounded `LinkedBlockingQueue`), created via `Relays`.
   queue is full, it calls `queue.offer(dispatch, relayEnqueueTimeout,
   NANOSECONDS)`, which blocks the WebSocket-receiving thread for up to the
   timeout; while it blocks, no further frames are read from that connection,
-  which is §2.5.1's stop-reading step. It reports the outcome as an
+  which is §2.5.1's stop-reading step. It reports the result as an
   `EnqueueStatus`: `ENQUEUED`, `ENQUEUED_AFTER_WAIT` or `DROPPED`. The timeout
   comes from `Configuration.getRelayEnqueueTimeout()`, a settable field, default
   30s.
@@ -1037,7 +1037,7 @@ touch.
 | §2.4.2 metric `wsgw.connect.latency` | `ConnectionRequest.doFilter` → `Timer` with `publishPercentiles(ADMISSION_QUANTILE)` (same tags); recorded around `registerWithApp` on both the success and the `HttpTimeoutException` path | `[partial]` | not scrapeable; also the input to the admission `Retry-After`, and its published `quantile` series is per-process, so it does not aggregate across gateway instances |
 | §2.5.1 `appwardDispatcherQueueSize` | `Configuration` (`APPWARD_DISPATCHER_QUEUE_SIZE`, 1024) → `Dispatcher` queue | `[implemented]` | |
 | §2.5.1 metric connections by relay buffer fill | `Relays.createMeters` → four `wsgw.relay.buffer.connections` `Gauge`s (`flow=relay`/`site=client_to_gw`/`fill=empty\|low\|high\|full`), each over `Relay::queueSize` | `[implemented]` | not scrapeable — no exporter wired yet (§5.5); covered by `RelayIT.assertBandsEventually` |
-| §2.5.1 relay enqueue timeout, stop-reading and drop | `Dispatcher.accept` (`queue.offer` with the timeout, outcome as `EnqueueStatus`); value from `Configuration.getRelayEnqueueTimeout()` | `[implemented]` | settable field, default 30s |
+| §2.5.1 relay enqueue timeout, stop-reading and drop | `Dispatcher.accept` (`queue.offer` with the timeout, result as `EnqueueStatus`); value from `Configuration.getRelayEnqueueTimeout()` | `[implemented]` | settable field, default 30s |
 | §2.5.1 metrics `wsgw.relay.enqueue.wait` / `wsgw.relay.enqueue.drops` | `Relays.createMeters` → `Timer` / `Counter` (`flow=relay`/`site=client_to_gw`); recorded in `Relay.dispatcherAccept` | `[partial]` | not scrapeable; covered by `RelayIT.dropsFramesOnRelayEnqueueTimeout` |
 | §2.5.2 relay response timeout | `Configuration.getRelayResponseTimeout()` → `Relays` → `Relay.relayToApp` → `Request.send` (`HttpRequest` timeout) | `[partial]` | bounds a relay the app never answers; expiry is an `HttpTimeoutException` logged and rethrown, not yet a retry/drop event |
 | §2.5.2 retry-then-drop escalation (max relay retries, retry interval) | `Dispatcher` drain loop | `[planned]` | blocked on the timeout row above — expiry is not yet handled as an event to retry from; also needs the duplicate tolerance stated in §2.5.2 agreed with the app side |

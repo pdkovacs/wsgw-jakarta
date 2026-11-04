@@ -1,63 +1,75 @@
 package io.github.pdkovacs.wsgw.e2e.driver.service;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DeliveryTracker {
     private final Map<String, Message> pendingDeliveries = new HashMap<>();
+    private final AtomicInteger failedCount = new AtomicInteger(0);
 
-    private Runnable notifyEmpty;
+    record Result(int failed, int deliveryPending) {
+    }
 
-    public DeliveryTracker() {}
+    private CompletableFuture<Result> allDeliveredPromise;
+
 
     /**
-     * Must be called in sequence strictly before watchDraining() is called
+     * Must be called in sequence strictly before allDelivered() is called
      * @param delivery
      */
     public void addDelivery(Message delivery) {
-
+        if (allDeliveredPromise != null) {
+            throw new IllegalStateException("addDelivery must be called before allDelivered");
+        }
+        pendingDeliveries.put(delivery.getId(), delivery);
     }
 
-    public synchronized void watchDraining(Runnable notifyEmpty) {
-        if (pendingDeliveries.size() == 0) {
-            notifyEmpty.run();
-        }
-        this.notifyEmpty = notifyEmpty;
+    synchronized CompletableFuture<Result> allDelivered() throws InterruptedException {
+        allDeliveredPromise = new CompletableFuture<>();
+        return allDeliveredPromise;
     }
 
     public synchronized Message getMessage(String id) {
         return pendingDeliveries.get(id);
     }
 
-    /**
-     * Returns the message, if it was delivered to all recipients
-     */
-    public synchronized Message markDelivered(String id, String recipientName) {
-        var msg = pendingDeliveries.get(id);
-        if (msg == null) {
-            return null;
+    public synchronized void markDelivered(String id, String recipientName) {
+        registerDeliveryResult(id, recipientName, true);
+    }
+
+    private void registerDeliveryResult(String id, String recipientName, boolean successful) {
+        if (allDeliveredPromise == null) {
+            throw new IllegalStateException("markDelivered must not be called before allDelivered");
         }
 
-        return msg.setRecipientServed(recipientName) == 0
-                ? msg
-                : null;
+        var msg = pendingDeliveries.get(id);
+
+        if (!successful) {
+            failedCount.incrementAndGet();
+        }
+
+        if (msg == null) {
+            return;
+        }
+
+        if (msg.setRecipientServed(recipientName) == 0) {
+            pendingDeliveries.remove(id);
+            if (pendingDeliveries.isEmpty()) {
+                allDeliveredPromise.complete(getResult());
+            }
+        }
+    }
+
+    public synchronized void markFailed(String id, String recipientName) {
+        registerDeliveryResult(id, recipientName, false);
     }
 
     /**
      * Drains the pending deliveries and returns them
      */
-    public synchronized List<Message> drainPending() {
-        List <Message> messages = new ArrayList<>();
-
-        for (var msg : pendingDeliveries.values()) {
-            var removed = pendingDeliveries.remove(msg.getId());
-            if (removed != null) {
-                messages.add(removed);
-            }
-        }
-
-        return messages;
+    synchronized Result getResult() {
+        return new Result(failedCount.get(), pendingDeliveries.size());
     }
 }
