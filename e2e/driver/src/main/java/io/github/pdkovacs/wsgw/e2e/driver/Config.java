@@ -82,7 +82,7 @@ public class Config {
         this.wsgwPort = wsgwPort;
     }
 
-    public String getWsgwUri() {
+    public String getWsgwServer() {
         return "%s:%d".formatted(wsgwHost, wsgwPort);
     }
 

@@ -38,7 +38,7 @@ public class TestRun implements Runnable {
     private static final int ALL_RECIPIENTS_UP_TO = 10;
 
     private final HttpClient httpClient;
-    private final String wsgwUri;
+    private final String wsgwServer;
     private final Duration timeout;
     private final String testRunId;
     private final List<PasswordCredentials> testUsers;
@@ -50,11 +50,11 @@ public class TestRun implements Runnable {
 
     private List<Message> messages;
 
-    private TestRun(HttpClient httpClient, String wsgwUri, Duration timeout, String testRunId,
+    private TestRun(HttpClient httpClient, String wsgwServer, Duration timeout, String testRunId,
                     List<PasswordCredentials> testUsers, int messageCount, PasswordCredentials senderCredentials,
                     Monitoring monitoring) {
         this.httpClient = httpClient;
-        this.wsgwUri = wsgwUri;
+        this.wsgwServer = wsgwServer;
         this.timeout = timeout;
         this.testRunId = testRunId;
         this.testUsers = testUsers;
@@ -72,7 +72,7 @@ public class TestRun implements Runnable {
      * @param messageCount how many messages are sent during the run
      * @throws IllegalArgumentException if either count is out of range
      */
-    public static TestRun create(HttpClient httpClient, String wsgwUri, int userCount, int messageCount,
+    public static TestRun create(HttpClient httpClient, String wsgwServer, int userCount, int messageCount,
                                  Duration timeout, List<PasswordCredentials> allCredentials,
                                  PasswordCredentials senderCredentials, Monitoring monitoring) {
         if (userCount < 1 || userCount > allCredentials.size()) {
@@ -82,7 +82,7 @@ public class TestRun implements Runnable {
         if (messageCount < 1) {
             throw new IllegalArgumentException("message-count must be at least 1, got %d".formatted(messageCount));
         }
-        return new TestRun(httpClient, wsgwUri, timeout, UUID.randomUUID().toString(),
+        return new TestRun(httpClient, wsgwServer, timeout, UUID.randomUUID().toString(),
                 List.copyOf(allCredentials.subList(0, userCount)), messageCount, senderCredentials, monitoring);
     }
 
@@ -139,7 +139,7 @@ public class TestRun implements Runnable {
             for (var user : testUsers) {
                 attempts.add(connecting.submit(() -> {
                     try {
-                        var receiver = new Receiver(httpClient, wsgwUri, new LinkedBlockingQueue<>(), user,
+                        var receiver = new Receiver(httpClient, wsgwServer, new LinkedBlockingQueue<>(), user,
                                 deliveryTracker, monitoring, testRunId);
                         receiver.connectAndListen();
                         receivers.put(user.username(), receiver);

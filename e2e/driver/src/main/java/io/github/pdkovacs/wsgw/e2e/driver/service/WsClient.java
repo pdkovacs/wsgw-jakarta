@@ -22,16 +22,16 @@ public class WsClient {
     private static final long CLOSE_TIMEOUT_SECONDS = 5;
 
     private final HttpClient httpClient;
-    private final String wsgwUri;
+    private final String wsgwServer;
     private final BlockingQueue<String> msgFromApp;
     private final CompletableFuture<Void> closed = new CompletableFuture<>();
 
     private WebSocket webSocket;
     private CtxLogger sessionLogger;
 
-    public WsClient(HttpClient httpClient, String wsgwUri, BlockingQueue<String> msgFromApp) {
+    public WsClient(HttpClient httpClient, String wsgwServer, BlockingQueue<String> msgFromApp) {
         this.httpClient = httpClient;
-        this.wsgwUri = wsgwUri;
+        this.wsgwServer = wsgwServer;
         this.msgFromApp = msgFromApp;
     }
 
@@ -41,7 +41,7 @@ public class WsClient {
         var authHeaderValue = "Basic " + Base64.getEncoder().encodeToString(userAndPassword.getBytes(StandardCharsets.UTF_8));
         return httpClient.newWebSocketBuilder()
                 .header("Authorization", authHeaderValue)
-                .buildAsync(URI.create("ws://%s%s".formatted(wsgwUri, WsgwPaths.CONNECT_FROM_CLIENT)), new WebSocket.Listener() {
+                .buildAsync(URI.create("ws://%s%s".formatted(wsgwServer, WsgwPaths.CONNECT_FROM_CLIENT)), new WebSocket.Listener() {
                     @Override
                     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
                         boolean closeSent = webSocket.isOutputClosed();

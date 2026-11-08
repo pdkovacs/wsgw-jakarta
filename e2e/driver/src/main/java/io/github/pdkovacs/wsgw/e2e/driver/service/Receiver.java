@@ -23,11 +23,11 @@ public class Receiver {
     private final Monitoring monitoring;
     private final String runId;
 
-    public Receiver(HttpClient httpClient, String wsgwUri, BlockingQueue<String> msgFromApp,
+    public Receiver(HttpClient httpClient, String wsgwServer, BlockingQueue<String> msgFromApp,
                     PasswordCredentials credentials,
                     DeliveryTracker outstandingMessages, Monitoring monitoring, String runId) {
         this.credentials = credentials;
-        this.wsClient = new WsClient(httpClient, wsgwUri, msgFromApp);
+        this.wsClient = new WsClient(httpClient, wsgwServer, msgFromApp);
         this.outstandingMessages = outstandingMessages;
         this.monitoring = monitoring;
         this.runId = runId;

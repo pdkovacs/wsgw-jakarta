@@ -63,7 +63,7 @@ public class Driver {
         Tomcat.addServlet(ctx, "get-version", new VersionServlet(Driver.class)).addMapping(VersionServlet.PATH);
         var testRunner = new TestRunner(
                 httpClient,
-                config.getWsgwUri(),
+                config.getWsgwServer(),
                 config.getPasswordCredentials(),
                 config.getSenderCredentials(),
                 Monitoring.noop());
