@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -35,12 +36,13 @@ public class WsClient {
         this.msgFromApp = msgFromApp;
     }
 
-    CompletableFuture<WebSocket> connect(String runId, String user, String password) {
+    CompletableFuture<WebSocket> open(String runId, String user, String password, Duration connectTimeout) {
         sessionLogger = logger.with("user", user).with("testRunId", runId);
         String userAndPassword = user + ":" + password;
         var authHeaderValue = "Basic " + Base64.getEncoder().encodeToString(userAndPassword.getBytes(StandardCharsets.UTF_8));
         return httpClient.newWebSocketBuilder()
                 .header("Authorization", authHeaderValue)
+                .connectTimeout(connectTimeout)
                 .buildAsync(URI.create("ws://%s%s".formatted(wsgwServer, WsgwPaths.CONNECT_FROM_CLIENT)), new WebSocket.Listener() {
                     @Override
                     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
@@ -70,7 +72,7 @@ public class WsClient {
     /**
      * Closes the session, waiting for the gateway's close frame, then drops the TCP connection in any
      * case: {@link HttpClient#close()} would otherwise block on a session the gateway never closes.
-     * Call it only after {@link #connect}'s future has completed.
+     * Call it only after {@link #open}'s future has completed.
      */
     void close() throws ExecutionException, InterruptedException, TimeoutException {
         try {

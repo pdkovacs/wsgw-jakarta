@@ -4,10 +4,9 @@ import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 
 import java.net.http.HttpClient;
-import java.net.http.WebSocket;
+import java.time.Duration;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -33,14 +32,9 @@ public class Receiver {
         this.runId = runId;
     }
 
-    void connectAndListen() throws ExecutionException, InterruptedException, TimeoutException {
-        var opening = wsClient.connect(runId, credentials.username(), credentials.password());
-        try {
-            opening.get(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            opening.thenAccept(WebSocket::abort); // should the handshake still complete, nobody would close it
-            throw e;
-        }
+    void connectAndListen() throws ExecutionException, InterruptedException {
+        var opening = wsClient.open(runId, credentials.username(), credentials.password(), Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS));
+        opening.get();
     }
 
     /**
