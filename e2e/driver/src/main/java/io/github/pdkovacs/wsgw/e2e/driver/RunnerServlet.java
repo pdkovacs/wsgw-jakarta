@@ -16,6 +16,8 @@ public class RunnerServlet extends HttpServlet {
 
     public static final String PATH = "/run";
 
+    public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
+
     private static final CtxLogger logger = CtxLogger.of(RunnerServlet.class);
 
     private final HttpClient httpClient;
@@ -48,8 +50,9 @@ public class RunnerServlet extends HttpServlet {
 
         final Duration timeout;
         try {
+            String timeoutParam = req.getParameter("timeout");
             // ISO-8601 duration, e.g. PT30S or PT2M
-            timeout = Duration.parse(req.getParameter("duration"));
+            timeout = timeoutParam == null ? DEFAULT_TIMEOUT : Duration.parse(timeoutParam);
         } catch (DateTimeParseException | NullPointerException e) { // NPE: missing parameter
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "duration must be an ISO-8601 duration, e.g. PT30S");
             return;
