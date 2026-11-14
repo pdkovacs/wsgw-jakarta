@@ -8,7 +8,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
 
@@ -20,11 +19,9 @@ public class RunnerServlet extends HttpServlet {
 
     private static final CtxLogger logger = CtxLogger.of(RunnerServlet.class);
 
-    private final HttpClient httpClient;
     private final TestRunner testRunner;
 
-    public RunnerServlet(HttpClient httpClient, TestRunner testRunner) {
-        this.httpClient = httpClient;
+    public RunnerServlet(TestRunner testRunner) {
         this.testRunner = testRunner;
     }
 
@@ -66,6 +63,8 @@ public class RunnerServlet extends HttpServlet {
             resp.getWriter().write(runId);
         } catch (IllegalArgumentException e) {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
+        } catch (IllegalStateException e) {
+            resp.sendError(HttpServletResponse.SC_CONFLICT, e.getMessage());
         } catch (Exception e) {
             logger.error("Exception in RunnerServlet", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);

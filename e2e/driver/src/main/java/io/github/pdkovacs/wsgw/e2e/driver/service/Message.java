@@ -1,10 +1,16 @@
 package io.github.pdkovacs.wsgw.e2e.driver.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.pdkovacs.wsgw.e2e.common.dto.E2EMessage;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 public class Message {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final String testRunId;
     private final String id;
     private final String text;
@@ -35,4 +41,13 @@ public class Message {
     List<String> getRecipientsWaiting() {
         return List.copyOf(recipientsWaiting);
     }
+
+    public String getText() {
+        return text;
+    }
+
+    public static E2EMessage parse(String msgStr) throws JsonProcessingException {
+        return MAPPER.readValue(msgStr, E2EMessage.class);
+    }
+
 }

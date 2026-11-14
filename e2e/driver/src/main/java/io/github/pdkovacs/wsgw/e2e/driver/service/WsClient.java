@@ -62,6 +62,15 @@ public class WsClient {
                         sessionLogger.error("Session error", error);
                         closed.completeExceptionally(error);
                     }
+
+                    @Override
+                    public CompletionStage<Void> onText(WebSocket webSocket,
+                                                        CharSequence data,
+                                                        boolean last) {
+                        var future = new CompletableFuture<Void>();
+                        future.complete(null);
+                        return future;
+                    }
                 })
                 .thenApply(openedWebSocket -> {
                     webSocket = openedWebSocket;

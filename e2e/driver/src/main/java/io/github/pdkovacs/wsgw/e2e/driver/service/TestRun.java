@@ -48,6 +48,7 @@ public class TestRun implements Runnable {
     private final DeliveryTracker deliveryTracker = new DeliveryTracker();
     private final Map<String, Receiver> receivers = new ConcurrentHashMap<>();
 
+    private Thread testRunThread;
     private List<Message> messages;
 
     private TestRun(HttpClient httpClient, String wsgwServer, Duration timeout, String testRunId,
@@ -123,11 +124,16 @@ public class TestRun implements Runnable {
 
     public void start() {
         try {
-            Thread.ofVirtual().start(this);
+            testRunThread = Thread.ofVirtual().start(this);
         } catch (Throwable t) {
             logger.error("Test run failed", t);
             throw new RuntimeException(t);
         }
+    }
+
+
+    public void stop() {
+        testRunThread.interrupt();
     }
 
     /**
@@ -139,8 +145,7 @@ public class TestRun implements Runnable {
             for (var user : testUsers) {
                 attempts.add(connecting.submit(() -> {
                     try {
-                        var receiver = new Receiver(httpClient, wsgwServer, new LinkedBlockingQueue<>(), user,
-                                deliveryTracker, monitoring, testRunId);
+                        var receiver = new Receiver(httpClient, wsgwServer, user, deliveryTracker, monitoring, testRunId);
                         receiver.connectAndListen();
                         receivers.put(user.username(), receiver);
                         return null;

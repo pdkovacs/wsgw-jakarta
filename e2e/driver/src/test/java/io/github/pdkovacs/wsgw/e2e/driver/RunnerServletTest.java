@@ -56,7 +56,7 @@ class RunnerServletTest {
         tomcat.setPort(0);
         tomcat.getConnector();
         Context ctx = tomcat.addContext("", baseDir.toString());
-        Tomcat.addServlet(ctx, "run", new RunnerServlet(http, testRunner)).addMapping(RunnerServlet.PATH);
+        Tomcat.addServlet(ctx, "run", new RunnerServlet(testRunner)).addMapping(RunnerServlet.PATH);
         tomcat.start();
     }
 

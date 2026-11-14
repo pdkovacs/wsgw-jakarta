@@ -27,12 +27,12 @@ public class Driver {
 
     private Tomcat tomcat;
 
-    public Driver(Config config, MeterRegistry meterRegistry) {
+    Driver(Config config, MeterRegistry meterRegistry) {
         this.config = config;
         this.httpClient = HttpClient.newBuilder().build();
     }
 
-    public int start() throws LifecycleException {
+    int start() throws LifecycleException {
         tomcat = new Tomcat();
         tomcat.setBaseDir(config.getBaseDir().toAbsolutePath().toString());
         tomcat.setPort(config.getServerPort());
@@ -67,8 +67,10 @@ public class Driver {
                 config.getPasswordCredentials(),
                 config.getSenderCredentials(),
                 Monitoring.noop());
-        Tomcat.addServlet(ctx, "run", new RunnerServlet(httpClient, testRunner))
+        Tomcat.addServlet(ctx, "run", new RunnerServlet(testRunner))
                 .addMapping(RunnerServlet.PATH);
+        Tomcat.addServlet(ctx, "stop", new StopperServlet(testRunner))
+                .addMapping(RunnerServlet.PATH + "/*");
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();
@@ -76,11 +78,11 @@ public class Driver {
 
     // Blocks until stop(). Tomcat's connector threads are daemons, so a main() that
     // returns right after start() lets the JVM exit
-    public void await() {
+    void await() {
         tomcat.getServer().await();
     }
 
-    public void stop() {
+    void stop() {
         try {
             logger.info("Stopping Tomcat...");
             tomcat.stop();
