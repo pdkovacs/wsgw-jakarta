@@ -6,12 +6,8 @@ import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.Objects;
+import java.util.concurrent.*;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -26,6 +22,7 @@ public class WsClient {
     private final String wsgwServer;
     private final BlockingQueue<String> msgFromApp;
     private final CompletableFuture<Void> closed = new CompletableFuture<>();
+    private final ConcurrentHashMap<JakartaWebSocket, StringBuilder> textChunkCache = new ConcurrentHashMap<>();
 
     private WebSocket webSocket;
     private CtxLogger sessionLogger;
@@ -62,6 +59,30 @@ public class WsClient {
                         sessionLogger.error("Session error", error);
                         closed.completeExceptionally(error);
                     }
+
+                    @Override
+                    public CompletionStage<Void> onText(WebSocket webSocket,
+                                                        CharSequence data,
+                                                        boolean last) {
+                        var future = new CompletableFuture<Void>();
+                        Thread.ofVirtual().start(() -> {
+                            var lookupKey = new JakartaWebSocket(webSocket);
+                            var soFar = textChunkCache.computeIfAbsent(lookupKey, k -> new StringBuilder());
+                            soFar.append(data);
+                            if (last) {
+                                try {
+                                    msgFromApp.put(soFar.toString());
+                                    soFar.setLength(0);
+                                } catch (InterruptedException e) {
+                                    logger.warn("Interrupted while waiting for message {} from websocket", data, e);
+                                    throw new RuntimeException(e);
+                                }
+                            }
+                            webSocket.request(1);
+                            future.complete(null);
+                        });
+                        return future;
+                    }
                 })
                 .thenApply(openedWebSocket -> {
                     webSocket = openedWebSocket;
@@ -87,4 +108,18 @@ public class WsClient {
             webSocket.abort();
         }
     }
+
+    record JakartaWebSocket(WebSocket webSocket) {
+        @Override
+        public boolean equals(Object o) {
+            if (o == null || getClass() != o.getClass()) return false;
+            JakartaWebSocket that = (JakartaWebSocket) o;
+            return webSocket == that.webSocket;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(webSocket);
+        }
+    };
 }

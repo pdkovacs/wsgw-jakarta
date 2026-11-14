@@ -1,5 +1,6 @@
 package io.github.pdkovacs.wsgw.e2e.driver;
 
+import io.github.pdkovacs.wsgw.e2e.driver.service.PerRunParams;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import jakarta.servlet.ServletException;
@@ -8,7 +9,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
 
@@ -19,12 +19,11 @@ public class RunnerServlet extends HttpServlet {
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
 
     private static final CtxLogger logger = CtxLogger.of(RunnerServlet.class);
+    private static final int DEFAULT_MESSAGE_SEND_CHUNK_SIZE = 1;
 
-    private final HttpClient httpClient;
     private final TestRunner testRunner;
 
-    public RunnerServlet(HttpClient httpClient, TestRunner testRunner) {
-        this.httpClient = httpClient;
+    public RunnerServlet(TestRunner testRunner) {
         this.testRunner = testRunner;
     }
 
@@ -58,14 +57,26 @@ public class RunnerServlet extends HttpServlet {
             return;
         }
 
+        final int messageSendChunkSize;
+        final String messageSendChunkSizeParam = req.getParameter("message-send-chunk-size");
         try {
-            String runId = testRunner.createStartTestRun(userCount, messageCount, timeout);
+            messageSendChunkSize = messageSendChunkSizeParam == null ? DEFAULT_MESSAGE_SEND_CHUNK_SIZE : Integer.parseInt(messageSendChunkSizeParam);
+        } catch (NumberFormatException | NullPointerException e) { // NPE: missing parameter
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid message-send-chunk-size %s".formatted(messageSendChunkSizeParam));
+            return;
+        }
+
+        try {
+            String runId = testRunner.createStartTestRun(
+                    new PerRunParams(userCount, messageCount, messageSendChunkSize, timeout));
             resp.setContentType("text/plain");
             resp.setCharacterEncoding("UTF-8");
             resp.setStatus(HttpServletResponse.SC_ACCEPTED);
             resp.getWriter().write(runId);
         } catch (IllegalArgumentException e) {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
+        } catch (IllegalStateException e) {
+            resp.sendError(HttpServletResponse.SC_CONFLICT, e.getMessage());
         } catch (Exception e) {
             logger.error("Exception in RunnerServlet", e);
             resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);

@@ -15,6 +15,7 @@ class ConfigSenderCredentialsTest {
         var vars = Map.of(
                 "E2EDRV_WSGW_HOST", "wsgw",
                 "E2EDRV_WSGW_PORT", "8080",
+                "E2EDRV_APP_SERVICE_URL", "http://app-service",
                 "E2EDRV_PASSWORD_CREDENTIALS",
                 "[{\"username\":\"user1\",\"password\":\"a\"},{\"username\":\"user2\",\"password\":\"b\"}]");
 

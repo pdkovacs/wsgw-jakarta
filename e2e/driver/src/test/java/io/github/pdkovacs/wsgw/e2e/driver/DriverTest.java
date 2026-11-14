@@ -43,6 +43,7 @@ class DriverTest {
         var hostAndPort = gateway.hostAndPort().split(":");
         config.setWsgwHost(hostAndPort[0]);
         config.setWsgwPort(Integer.parseInt(hostAndPort[1]));
+        config.setAppServiceUrl(URI.create("http://app-service"));
         config.setPasswordCredentials(List.of(
                 new PasswordCredentials("user1", "secret"),
                 new PasswordCredentials("user2", "secret")));

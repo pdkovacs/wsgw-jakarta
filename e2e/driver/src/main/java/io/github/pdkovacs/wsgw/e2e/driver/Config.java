@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.pdkovacs.wsgw.config.Env;
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -33,6 +34,12 @@ public class Config {
     // -----------------------------------------------------------------------------
 
     private List<PasswordCredentials> passwordCredentials;
+
+    // -----------------------------------------------------------------------------
+    // --- app service ---
+    // -----------------------------------------------------------------------------
+
+    private URI appServiceUrl;
 
     // -----------------------------------------------------------------------------
     // --- base ---
@@ -106,6 +113,18 @@ public class Config {
     }
 
     // -----------------------------------------------------------------------------
+    // --- app service ---
+    // -----------------------------------------------------------------------------
+
+    public URI getAppServiceUrl() {
+        return appServiceUrl;
+    };
+
+    public void setAppServiceUrl(URI appServiceUrl) {
+        this.appServiceUrl = appServiceUrl;
+    };
+
+    // -----------------------------------------------------------------------------
     // --- construction ---
     // -----------------------------------------------------------------------------
 
@@ -123,6 +142,9 @@ public class Config {
         config.setWsgwPort(env.requiredInt("E2EDRV_WSGW_PORT"));
 
         config.setPasswordCredentials(parsePasswordCredentials(env.required("E2EDRV_PASSWORD_CREDENTIALS")));
+
+        config.setAppServiceUrl(URI.create(env.required("E2EDRV_APP_SERVICE_URL")));
+
         return config;
     }
 

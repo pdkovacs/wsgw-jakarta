@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
+import io.github.pdkovacs.wsgw.e2e.driver.service.PerRunParams;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import org.apache.catalina.Context;
 import org.apache.catalina.startup.Tomcat;
@@ -16,7 +17,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -43,11 +43,11 @@ class RunnerServletTest {
     @BeforeEach
     void startTomcat() throws Exception {
         gateway = new FakeWsServer();
-        var testRunner = new TestRunner(http, gateway.hostAndPort(), POOL, POOL.getFirst(), Monitoring.noop()) {
+        var testRunner = new TestRunner(http, gateway.hostAndPort(), URI.create("http://app-service"), POOL, POOL.getFirst(), Monitoring.noop()) {
             @Override
-            public String createStartTestRun(int userCount, int messageCount, Duration duration) {
-                requestedCounts.set(new Counts(userCount, messageCount));
-                return super.createStartTestRun(userCount, messageCount, duration);
+            public String createStartTestRun(PerRunParams params) {
+                requestedCounts.set(new Counts(params.userCount(), params.messageCount()));
+                return super.createStartTestRun(params);
             }
         };
 
@@ -56,7 +56,7 @@ class RunnerServletTest {
         tomcat.setPort(0);
         tomcat.getConnector();
         Context ctx = tomcat.addContext("", baseDir.toString());
-        Tomcat.addServlet(ctx, "run", new RunnerServlet(http, testRunner)).addMapping(RunnerServlet.PATH);
+        Tomcat.addServlet(ctx, "run", new RunnerServlet(testRunner)).addMapping(RunnerServlet.PATH);
         tomcat.start();
     }
 

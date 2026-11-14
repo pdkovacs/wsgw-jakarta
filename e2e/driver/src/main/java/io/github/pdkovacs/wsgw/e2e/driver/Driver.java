@@ -22,20 +22,20 @@ public class Driver {
     private static final CtxLogger logger = CtxLogger.of(Driver.class);
 
     private final ConcurrentHashMap<String, TestRun> testRuns = new ConcurrentHashMap<>();
-    private final Config config;
+    private final Config driverConfig;
     private final HttpClient httpClient;
 
     private Tomcat tomcat;
 
-    public Driver(Config config, MeterRegistry meterRegistry) {
-        this.config = config;
+    Driver(Config driverConfig, MeterRegistry meterRegistry) {
+        this.driverConfig = driverConfig;
         this.httpClient = HttpClient.newBuilder().build();
     }
 
-    public int start() throws LifecycleException {
+    int start() throws LifecycleException {
         tomcat = new Tomcat();
-        tomcat.setBaseDir(config.getBaseDir().toAbsolutePath().toString());
-        tomcat.setPort(config.getServerPort());
+        tomcat.setBaseDir(driverConfig.getBaseDir().toAbsolutePath().toString());
+        tomcat.setPort(driverConfig.getServerPort());
         tomcat.getConnector().setProperty("useVirtualThreads", "true"); // ← keeps the VT-blocking model
 
         // Advertise h2c on the connector so HTTP/2-capable callers (the PUSH flow's app->gateway hop) can
@@ -52,7 +52,7 @@ public class Driver {
 
         Context ctx = tomcat.addContext("", null);
 
-        var authenticator = new BasicAuthenticator(config.getPasswordCredentials());
+        var authenticator = new BasicAuthenticator(driverConfig.getPasswordCredentials());
         var authnFilter = new BasicAuthHttpFilter(authenticator, Set.of("get-version"));
         addFilter(ctx, authnFilter, "/*");
 
@@ -63,12 +63,15 @@ public class Driver {
         Tomcat.addServlet(ctx, "get-version", new VersionServlet(Driver.class)).addMapping(VersionServlet.PATH);
         var testRunner = new TestRunner(
                 httpClient,
-                config.getWsgwServer(),
-                config.getPasswordCredentials(),
-                config.getSenderCredentials(),
+                driverConfig.getWsgwServer(),
+                driverConfig.getAppServiceUrl(),
+                driverConfig.getPasswordCredentials(),
+                driverConfig.getSenderCredentials(),
                 Monitoring.noop());
-        Tomcat.addServlet(ctx, "run", new RunnerServlet(httpClient, testRunner))
+        Tomcat.addServlet(ctx, "run", new RunnerServlet(testRunner))
                 .addMapping(RunnerServlet.PATH);
+        Tomcat.addServlet(ctx, "stop", new StopperServlet(testRunner))
+                .addMapping(RunnerServlet.PATH + "/*");
 
         tomcat.start();
         return tomcat.getConnector().getLocalPort();
@@ -76,11 +79,11 @@ public class Driver {
 
     // Blocks until stop(). Tomcat's connector threads are daemons, so a main() that
     // returns right after start() lets the JVM exit
-    public void await() {
+    void await() {
         tomcat.getServer().await();
     }
 
-    public void stop() {
+    void stop() {
         try {
             logger.info("Stopping Tomcat...");
             tomcat.stop();

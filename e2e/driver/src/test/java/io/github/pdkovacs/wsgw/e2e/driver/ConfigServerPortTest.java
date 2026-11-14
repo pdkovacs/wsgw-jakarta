@@ -14,6 +14,7 @@ class ConfigServerPortTest {
         var vars = new HashMap<>(Map.of(
                 "E2EDRV_WSGW_HOST", "wsgw",
                 "E2EDRV_WSGW_PORT", "8080",
+                "E2EDRV_APP_SERVICE_URL", "http://app-service",
                 "E2EDRV_PASSWORD_CREDENTIALS", "[{\"username\":\"test\",\"password\":\"test\"}]"));
         vars.putAll(extra);
         return Config.fromEnv(Env.of(vars::get));

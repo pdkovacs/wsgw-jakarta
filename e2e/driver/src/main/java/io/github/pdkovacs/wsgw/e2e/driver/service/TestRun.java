@@ -1,26 +1,24 @@
 package io.github.pdkovacs.wsgw.e2e.driver.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
+import io.github.pdkovacs.wsgw.e2e.common.dto.E2EMessage;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import io.github.pdkovacs.wsgw.e2e.driver.service.DeliveryTracker.Result;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
+import java.io.IOException;
+import java.net.URI;
 import java.net.http.HttpClient;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.random.RandomGenerator;
+import java.util.stream.Gatherers;
 
 /**
  * One e2e test run, following the single-sender model: the run's users only receive, and every
@@ -32,35 +30,42 @@ public class TestRun implements Runnable {
 
     private static final CtxLogger logger = CtxLogger.of(TestRun.class);
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     /**
      * With at most this many candidates, a message goes to all of them; above it, to a random subset.
      */
     private static final int ALL_RECIPIENTS_UP_TO = 10;
 
+    private final CtxLogger iLogger;
     private final HttpClient httpClient;
     private final String wsgwServer;
-    private final Duration timeout;
+    private final URI appServiceUrl;
+    private final PerRunParams params;
     private final String testRunId;
     private final List<PasswordCredentials> testUsers;
-    private final int messageCount;
     private final PasswordCredentials senderCredentials;
     private final Monitoring monitoring;
     private final DeliveryTracker deliveryTracker = new DeliveryTracker();
     private final Map<String, Receiver> receivers = new ConcurrentHashMap<>();
+    private final Runnable onDone;
 
+    private Thread testRunThread;
     private List<Message> messages;
 
-    private TestRun(HttpClient httpClient, String wsgwServer, Duration timeout, String testRunId,
-                    List<PasswordCredentials> testUsers, int messageCount, PasswordCredentials senderCredentials,
-                    Monitoring monitoring) {
+    private TestRun(HttpClient httpClient, String wsgwServer, URI appServiceUrl, PerRunParams params,
+                    String testRunId, List<PasswordCredentials> testUsers, PasswordCredentials senderCredentials,
+                    Runnable onDone, Monitoring monitoring) {
+        this.iLogger = logger.with("runId", testRunId);
         this.httpClient = httpClient;
         this.wsgwServer = wsgwServer;
-        this.timeout = timeout;
+        this.appServiceUrl = appServiceUrl;
+        this.params = params;
         this.testRunId = testRunId;
         this.testUsers = testUsers;
-        this.messageCount = messageCount;
         this.senderCredentials = senderCredentials;
         this.monitoring = monitoring;
+        this.onDone = onDone;
     }
 
     // -----------------------------------------------------------------------------
@@ -68,13 +73,15 @@ public class TestRun implements Runnable {
     // -----------------------------------------------------------------------------
 
     /**
-     * @param userCount    how many users of {@code allCredentials} connect, counted from its start
-     * @param messageCount how many messages are sent during the run
+     * @param params the run's own parameters; its user count selects the users from the start of {@code allCredentials}
+     * @param onDone
      * @throws IllegalArgumentException if either count is out of range
      */
-    public static TestRun create(HttpClient httpClient, String wsgwServer, int userCount, int messageCount,
-                                 Duration timeout, List<PasswordCredentials> allCredentials,
-                                 PasswordCredentials senderCredentials, Monitoring monitoring) {
+    public static TestRun create(HttpClient httpClient, String wsgwServer, URI appServiceUrl, PerRunParams params,
+                                 List<PasswordCredentials> allCredentials, PasswordCredentials senderCredentials,
+                                 Runnable onDone, Monitoring monitoring) {
+        int userCount = params.userCount();
+        int messageCount = params.messageCount();
         if (userCount < 1 || userCount > allCredentials.size()) {
             throw new IllegalArgumentException(
                     "user-count must be between 1 and %d, got %d".formatted(allCredentials.size(), userCount));
@@ -82,8 +89,8 @@ public class TestRun implements Runnable {
         if (messageCount < 1) {
             throw new IllegalArgumentException("message-count must be at least 1, got %d".formatted(messageCount));
         }
-        return new TestRun(httpClient, wsgwServer, timeout, UUID.randomUUID().toString(),
-                List.copyOf(allCredentials.subList(0, userCount)), messageCount, senderCredentials, monitoring);
+        return new TestRun(httpClient, wsgwServer, appServiceUrl, params, UUID.randomUUID().toString(),
+                List.copyOf(allCredentials.subList(0, userCount)), senderCredentials, onDone, monitoring);
     }
 
     public String getTestRunId() {
@@ -107,40 +114,48 @@ public class TestRun implements Runnable {
             allDeliveredPromise = deliveryTracker.allDelivered();
 
             stage = "delivering messages";
-            startSendingMessage();
+            startSendingMessages();
 
             stage = "waiting for all messages to be delivered";
-            allDeliveredPromise.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
-            logger.info("Test run finished for {}: {}", testRunId, deliveryTracker.getResult());
+            allDeliveredPromise.get(params.timeout().toNanos(), TimeUnit.NANOSECONDS);
+            iLogger.info("Test run finished for {}: {}", testRunId, deliveryTracker.getResult());
         } catch (TimeoutException e) {
-            logger.error("Timeout while {}: {}", stage, deliveryTracker.getResult(), e);
+            iLogger.error("Timeout while {}: {}", stage, deliveryTracker.getResult(), e);
         } catch (Exception e) {
-            logger.error("Exception occurred while {}: {}", stage, deliveryTracker.getResult(), e);
+            iLogger.error("Exception occurred while {}: {}", stage, deliveryTracker.getResult(), e);
         } finally {
-            closeSessions();
+            try {
+                closeSessions();
+            } finally {
+                onDone.run();
+            }
         }
     }
 
     public void start() {
         try {
-            Thread.ofVirtual().start(this);
+            testRunThread = Thread.ofVirtual().start(this);
         } catch (Throwable t) {
             logger.error("Test run failed", t);
             throw new RuntimeException(t);
         }
     }
 
+
+    public void stop() {
+        testRunThread.interrupt();
+    }
+
     /**
      * Waits for every user's attempt to finish, then throws the first failure, if there was any.
      */
-    private void connectReceivers() throws ExecutionException, InterruptedException {
+    private void connectReceivers() throws InterruptedException {
         List<Future<?>> attempts = new ArrayList<>(testUsers.size());
         try (var connecting = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var user : testUsers) {
                 attempts.add(connecting.submit(() -> {
                     try {
-                        var receiver = new Receiver(httpClient, wsgwServer, new LinkedBlockingQueue<>(), user,
-                                deliveryTracker, monitoring, testRunId);
+                        var receiver = new Receiver(httpClient, wsgwServer, user, deliveryTracker, monitoring, testRunId);
                         receiver.connectAndListen();
                         receivers.put(user.username(), receiver);
                         return null;
@@ -177,7 +192,82 @@ public class TestRun implements Runnable {
         }
     }
 
-    private void startSendingMessage() {
+    private void startSendingMessages() {
+        List<E2EMessage> messagesToSend = new ArrayList<>();
+
+        for  (var message : messages) {
+            var msgDto = new E2EMessage(
+                    testRunId,
+                    message.getId(),
+                    senderCredentials.username(),
+                    message.getRecipientsWaiting(),
+                    message.getText(),
+                    null,
+                    null,
+                    null);
+            messagesToSend.add(msgDto);
+        }
+
+        List<List<E2EMessage>> chunks = messagesToSend.stream()
+                .gather(Gatherers.windowFixed(params.messageSendChunkSize()))
+                .toList();
+
+        AtomicReference<Exception> error = new AtomicReference<>();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var completionService = new ExecutorCompletionService<Void>(executor);
+            for (int index = 0; index < chunks.size() && error.get() == null; index++) {
+                List<E2EMessage> chunkToSend = chunks.get(index);
+                completionService.submit(() -> {
+                    try {
+                        sendMessagesChunk(chunkToSend);
+                    } catch (Exception e) {
+                        error.compareAndSet(null, e);
+                        throw new RuntimeException(e);
+                    }
+                    return null;
+                });
+            }
+            for (var index = 0; index < chunks.size() && error.get() == null; index++) {
+                var future = completionService.take();
+                future.get();
+            }
+            if (error.get() != null) {
+                iLogger.error("Failed to send messages (first error recorded)", error.get());
+                throw new RuntimeException(error.get());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            iLogger.error("Interrupted while sending messages");
+        } catch (ExecutionException e) {
+            iLogger.error("Error while sending messages", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void sendMessagesChunk(List<E2EMessage> chunkToSend) throws InterruptedException {
+        var mLogger = logger.with("method", "sendMessagesChunk");
+        try {
+            var timestampedMessages = chunkToSend.stream().map(E2EMessage::withSentAtNow).toList();
+            var messagesToSend = MAPPER.writer().writeValueAsString(timestampedMessages);
+            var authnHeader = "Basic " + Base64.getEncoder().encodeToString(
+                            "%s:%s".formatted(senderCredentials.username(), senderCredentials.password())
+                            .getBytes(StandardCharsets.UTF_8));
+            var request = HttpRequest.newBuilder(appServiceUrl)
+                    .method("POST", HttpRequest.BodyPublishers.ofString(messagesToSend))
+                    .header("Authorization", authnHeader)
+                    .header("Content-Type", "application/json")
+                    .build();
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (JsonProcessingException e) {
+            mLogger.error("Failed to write messages to JSON", e);
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            mLogger.error("Interrupted while sending messages", e);
+            throw e;
+        }
     }
 
     // -----------------------------------------------------------------------------
@@ -187,8 +277,8 @@ public class TestRun implements Runnable {
     List<Message> createMessages() {
         List<String> recipientCandidates = testUsers.stream().map(PasswordCredentials::username).toList();
 
-        List<Message> created = new ArrayList<>(messageCount);
-        for (int i = 0; i < messageCount; i++) {
+        List<Message> created = new ArrayList<>(params.messageCount());
+        for (int i = 0; i < params.messageCount(); i++) {
             var message = createMessage(recipientCandidates);
             created.add(message);
             deliveryTracker.addDelivery(message);
@@ -239,4 +329,5 @@ public class TestRun implements Runnable {
 
         return result;
     }
+
 }

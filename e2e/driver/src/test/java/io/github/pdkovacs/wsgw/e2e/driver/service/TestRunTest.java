@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -21,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestRunTest {
+
+    private static final URI APP_SERVICE_URL = URI.create("http://app-service");
 
     @ParameterizedTest
     @CsvSource({"3, 1", "3, 3", "3, 7"})
@@ -111,8 +114,8 @@ class TestRunTest {
     void runConnectsItsUsersCreatesTheMessagesThenClosesTheSessions() throws Exception {
         var messagesCreated = new AtomicInteger();
         try (var gateway = new FakeWsServer(); var http = HttpClient.newHttpClient()) {
-            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, Duration.ofSeconds(1), credentials(5),
-                    new PasswordCredentials("sender", "secret"), countingCreatedMessages(messagesCreated));
+            var run = TestRun.create(http, gateway.hostAndPort(), APP_SERVICE_URL, params(3, 2), credentials(5),
+                    new PasswordCredentials("sender", "secret"), () -> {}, countingCreatedMessages(messagesCreated));
 
             run.run();
 
@@ -130,8 +133,8 @@ class TestRunTest {
         var messagesCreated = new AtomicInteger();
         try (var gateway = new FakeWsServer(); var http = HttpClient.newHttpClient()) {
             gateway.rejectAuthorization(authorization("user2"));
-            var run = TestRun.create(http, gateway.hostAndPort(), 3, 2, Duration.ofSeconds(1), credentials(3),
-                    new PasswordCredentials("sender", "secret"), countingCreatedMessages(messagesCreated));
+            var run = TestRun.create(http, gateway.hostAndPort(), APP_SERVICE_URL, params(3, 2), credentials(3),
+                    new PasswordCredentials("sender", "secret"), () -> {}, countingCreatedMessages(messagesCreated));
 
             run.run();
 
@@ -146,8 +149,12 @@ class TestRunTest {
     // -----------------------------------------------------------------------------
 
     private static TestRun testRun(int poolSize, int userCount, int messageCount, Monitoring monitoring) {
-        return TestRun.create(null, "wsgw:8080", userCount, messageCount, Duration.ofSeconds(1), credentials(poolSize),
-                new PasswordCredentials("sender", "secret"), monitoring);
+        return TestRun.create(null, "wsgw:8080", APP_SERVICE_URL, params(userCount, messageCount), credentials(poolSize),
+                new PasswordCredentials("sender", "secret"), () -> {}, monitoring);
+    }
+
+    private static PerRunParams params(int userCount, int messageCount) {
+        return new PerRunParams(userCount, messageCount, 1, Duration.ofSeconds(1));
     }
 
     private static Monitoring countingCreatedMessages(AtomicInteger messagesCreated) {
