@@ -123,6 +123,10 @@ public class Config {
         this.wsgwPort = wsgwPort;
     }
 
+    public String getWsgwServer() {
+        return "%s:%d".formatted(wsgwHost, wsgwPort);
+    }
+
     // -----------------------------------------------------------------------------
     // --- authentication ---
     // -----------------------------------------------------------------------------

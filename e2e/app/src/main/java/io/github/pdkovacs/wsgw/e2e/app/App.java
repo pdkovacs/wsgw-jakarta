@@ -1,5 +1,8 @@
 package io.github.pdkovacs.wsgw.e2e.app;
 
+import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnectionsFactory;
+import io.github.pdkovacs.wsgw.e2e.app.service.MessageSender;
+import io.github.pdkovacs.wsgw.e2e.app.service.WsgwClient;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.version.VersionServlet;
@@ -12,6 +15,8 @@ import org.apache.coyote.http2.Http2Protocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.Set;
 
 import static io.github.pdkovacs.wsgw.e2e.app.ApiRoutes.bindApiRoutes;
@@ -22,11 +27,18 @@ public class App {
     private static final Logger log = LoggerFactory.getLogger(App.class);
 
     private final Config config;
+    private final HttpClient httpClient;
 
     private Tomcat tomcat;
+    private MessageSender messageSender;
 
     public App(Config config, MeterRegistry meterRegistry) {
         this.config = config;
+        // Iter 2: flip to HTTP_2 when h2c parity is wired up.
+        this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
     }
 
     public int start() throws LifecycleException {
@@ -58,6 +70,12 @@ public class App {
 
         bindApiRoutes(config, ctx);
 
+        messageSender = new MessageSender(
+                WsConnectionsFactory.wsConnections(config),
+                new WsgwClient(httpClient, config.getWsgwServer()));
+        Tomcat.addServlet(ctx, "messages-in-bulk", new BulkMessagesServlet(messageSender))
+                .addMapping(BulkMessagesServlet.PATH);
+
         // unknown paths get 401 instead of 404, so an unauthenticated caller can't tell which paths exist
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());
         ctx.addServletMappingDecoded("/", "default");
@@ -80,6 +98,11 @@ public class App {
             tomcat.destroy();
         } catch (LifecycleException e) {
             throw new RuntimeException(e);
+        } finally {
+            // After Tomcat: no request can reach the sender any more
+            if (messageSender != null) {
+                messageSender.close();
+            }
         }
     }
 }
