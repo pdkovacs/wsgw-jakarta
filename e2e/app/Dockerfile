@@ -1,6 +1,6 @@
 # Built by `task e2e:app:image`, with e2e/app as the context, after `mvn package`
 # has filled target/classes and target/lib.
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:25.0.5.1_2-jre
 
 RUN useradd -u 1101 -m --shell /bin/false wsgw
 

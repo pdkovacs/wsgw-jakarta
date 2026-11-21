@@ -1,7 +1,7 @@
 # Build/test image for reproducing MessageStressIT under constrained CPU/memory
 # (see docs/drafts/messagestressit-hang.md). Source is bind-mounted at run time, not
 # baked in, so edits don't require a rebuild.
-FROM eclipse-temurin:25-jdk
+FROM eclipse-temurin:25.0.5.1_2-jdk
 
 ARG MAVEN_VERSION=3.9.11
 RUN apt-get update \
