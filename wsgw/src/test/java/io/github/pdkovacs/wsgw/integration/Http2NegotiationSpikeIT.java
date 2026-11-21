@@ -30,7 +30,7 @@ import java.time.Duration;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Throwaway discovery spike (delete once it has answered its question): what does the JDK 25
+ * Discovery spike: what does the JDK 25
  * {@link java.net.http.HttpClient} actually negotiate against an embedded Tomcat 11 when asked
  * for HTTP/2 — over cleartext (h2c) vs over TLS (ALPN)?
  *

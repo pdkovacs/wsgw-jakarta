@@ -15,8 +15,6 @@ import java.util.List;
 
 public class BulkMessagesServlet extends HttpServlet {
 
-    public static final String PATH = "/api/messages-in-bulk";
-
     private static final CtxLogger logger = CtxLogger.of(BulkMessagesServlet.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<E2EMessage>> MESSAGE_LIST = new TypeReference<>() {

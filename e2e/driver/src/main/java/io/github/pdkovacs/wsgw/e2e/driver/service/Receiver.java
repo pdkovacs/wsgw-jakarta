@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.e2e.driver.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import io.github.pdkovacs.wsgw.e2e.common.LogKeys;
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
@@ -18,6 +19,7 @@ public class Receiver implements Runnable {
     private static final CtxLogger logger = CtxLogger.of(Receiver.class);
 
     private static final long CONNECT_TIMEOUT_SECONDS = 30;
+    private static final Duration CLOSE_SESSION_TIMEOUT = Duration.ofSeconds(5);
 
     private final BlockingQueue<String> msgFromApp = new LinkedBlockingQueue<>();
     private final PasswordCredentials credentials;
@@ -27,6 +29,8 @@ public class Receiver implements Runnable {
     private final String runId;
     private final CtxLogger iLogger;
 
+    private Thread runnerThread;
+
     public Receiver(HttpClient httpClient, String wsgwServer,
                     PasswordCredentials credentials,
                     DeliveryTracker outstandingMessages, Monitoring monitoring, String runId) {
@@ -35,19 +39,25 @@ public class Receiver implements Runnable {
         this.outstandingMessages = outstandingMessages;
         this.monitoring = monitoring;
         this.runId = runId;
-        iLogger = logger.with("runId", runId);
+        iLogger = logger.with(LogKeys.RUN_ID, runId).with(LogKeys.USER, credentials.username());
     }
 
-    void connectAndListen() throws ExecutionException, InterruptedException {
+    synchronized void connectAndListen() throws ExecutionException, InterruptedException {
         var opening = wsClient.open(runId, credentials.username(), credentials.password(), Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS));
         opening.get();
-        Thread.ofVirtual().start(this);
+        runnerThread = Thread.ofVirtual().start(this);
     }
 
     /**
      * Must only be called after {@link #connectAndListen()} has succeeded.
      */
-    void closeSession() throws ExecutionException, InterruptedException, TimeoutException {
+    synchronized void closeSession() throws ExecutionException, InterruptedException, TimeoutException {
+        if (runnerThread != null) {
+            runnerThread.interrupt();
+            if (!runnerThread.join(CLOSE_SESSION_TIMEOUT)) {
+                iLogger.warn("Thread.join() timed out");
+            }
+        }
         wsClient.close();
     }
 
@@ -58,7 +68,7 @@ public class Receiver implements Runnable {
                 processMessageFromApp(msgFromApp.take());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                iLogger.warn("Received interrupt while waiting for message from app", e);
+                iLogger.debug("Received interrupt while waiting for message from app", e);
             }
         }
     }
@@ -86,7 +96,7 @@ public class Receiver implements Runnable {
                 monitoring.incMsgTextMismatchCounter().run();
             }
 
-            if (deliveryDuration.getNano() > 400) {
+            if (deliveryDuration.toMillis() > 400) {
                 mLogger.with("deliveryDuration", deliveryDuration).debug("extra slow");
             }
 

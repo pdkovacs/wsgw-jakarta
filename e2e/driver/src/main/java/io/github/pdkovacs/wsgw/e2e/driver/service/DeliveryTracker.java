@@ -66,9 +66,6 @@ public class DeliveryTracker {
         registerDeliveryResult(id, recipientName, false);
     }
 
-    /**
-     * Drains the pending deliveries and returns them
-     */
     synchronized Result getResult() {
         return new Result(failedCount.get(), pendingDeliveries.size());
     }

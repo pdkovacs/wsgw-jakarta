@@ -18,22 +18,14 @@ public class StopperServlet extends HttpServlet {
     }
 
     protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        // Expects DELETE <mapping>/{runId}, i.e. the servlet mapped to "/run/*"
-        String pathInfo = req.getPathInfo(); // "/{runId}", or null when no path follows the mapping
-        if (pathInfo == null || pathInfo.length() <= 1 || pathInfo.indexOf('/', 1) != -1) {
-            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "expected path: .../{runId}");
-            return;
-        }
-        String runId = pathInfo.substring(1);
-
         try {
-            testRunner.stopTestRun(runId);
-        } catch (IllegalArgumentException e) {
-            logger.error("Stopping test run with id " + runId + " failed", e);
-            resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            testRunner.stopTestRun(true);
         } catch (IllegalStateException e) {
-            logger.error("Stopping test run with id " + runId + " failed", e);
+            logger.error("Stopping test run with id failed", e);
             resp.sendError(HttpServletResponse.SC_CONFLICT);
+        } catch (InterruptedException e) {
+            logger.error("Interrupted while waiting for Tomcat to stop");
+            resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
         }
     }
 }

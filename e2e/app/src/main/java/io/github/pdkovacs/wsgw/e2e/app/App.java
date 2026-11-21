@@ -3,6 +3,7 @@ package io.github.pdkovacs.wsgw.e2e.app;
 import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnectionsFactory;
 import io.github.pdkovacs.wsgw.e2e.app.service.MessageSender;
 import io.github.pdkovacs.wsgw.e2e.app.service.WsgwClient;
+import io.github.pdkovacs.wsgw.e2e.common.E2eAppPaths;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.version.VersionServlet;
@@ -74,7 +75,7 @@ public class App {
                 WsConnectionsFactory.wsConnections(config),
                 new WsgwClient(httpClient, config.getWsgwServer()));
         Tomcat.addServlet(ctx, "messages-in-bulk", new BulkMessagesServlet(messageSender))
-                .addMapping(BulkMessagesServlet.PATH);
+                .addMapping(E2eAppPaths.BULK_SEND_MESSAGES);
 
         // unknown paths get 401 instead of 404, so an unauthenticated caller can't tell which paths exist
         Tomcat.addServlet(ctx, "default", new org.apache.catalina.servlets.DefaultServlet());

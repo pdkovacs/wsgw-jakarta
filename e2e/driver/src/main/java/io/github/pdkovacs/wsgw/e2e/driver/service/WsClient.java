@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.concurrent.*;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
+import io.github.pdkovacs.wsgw.e2e.common.LogKeys;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
 public class WsClient {
@@ -34,7 +35,7 @@ public class WsClient {
     }
 
     CompletableFuture<WebSocket> open(String runId, String user, String password, Duration connectTimeout) {
-        sessionLogger = logger.with("user", user).with("testRunId", runId);
+        sessionLogger = logger.with(LogKeys.RUN_ID, runId).with(LogKeys.USER, user);
         String userAndPassword = user + ":" + password;
         var authHeaderValue = "Basic " + Base64.getEncoder().encodeToString(userAndPassword.getBytes(StandardCharsets.UTF_8));
         return httpClient.newWebSocketBuilder()
@@ -74,7 +75,7 @@ public class WsClient {
                                     msgFromApp.put(soFar.toString());
                                     soFar.setLength(0);
                                 } catch (InterruptedException e) {
-                                    logger.warn("Interrupted while waiting for message {} from websocket", data, e);
+                                    sessionLogger.warn("Interrupted while waiting for message {} from websocket", data, e);
                                     throw new RuntimeException(e);
                                 }
                             }
@@ -102,8 +103,9 @@ public class WsClient {
                 return;
             }
 
-            webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "").get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            closed.get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "")
+                    .thenCompose(ws -> closed)
+                    .get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } finally {
             webSocket.abort();
         }

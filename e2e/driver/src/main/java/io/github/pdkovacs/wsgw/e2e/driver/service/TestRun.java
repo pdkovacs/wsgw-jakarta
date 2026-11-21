@@ -2,11 +2,14 @@ package io.github.pdkovacs.wsgw.e2e.driver.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.pdkovacs.wsgw.e2e.common.E2eAppPaths;
+import io.github.pdkovacs.wsgw.e2e.common.LogKeys;
 import io.github.pdkovacs.wsgw.e2e.common.auth.PasswordCredentials;
 import io.github.pdkovacs.wsgw.e2e.common.dto.E2EMessage;
 import io.github.pdkovacs.wsgw.e2e.driver.Monitoring;
 import io.github.pdkovacs.wsgw.e2e.driver.service.DeliveryTracker.Result;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,6 +41,9 @@ public class TestRun implements Runnable {
      */
     private static final int ALL_RECIPIENTS_UP_TO = 10;
 
+    private static final Duration SEND_MESSAGE_CHUNK_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration STOP_JOIN_TIMEOUT = Duration.ofSeconds(30);
+
     private final CtxLogger iLogger;
     private final HttpClient httpClient;
     private final String wsgwServer;
@@ -56,7 +63,7 @@ public class TestRun implements Runnable {
     private TestRun(HttpClient httpClient, String wsgwServer, URI appServiceUrl, PerRunParams params,
                     String testRunId, List<PasswordCredentials> testUsers, PasswordCredentials senderCredentials,
                     Runnable onDone, Monitoring monitoring) {
-        this.iLogger = logger.with("runId", testRunId);
+        this.iLogger = logger.with(LogKeys.RUN_ID, testRunId);
         this.httpClient = httpClient;
         this.wsgwServer = wsgwServer;
         this.appServiceUrl = appServiceUrl;
@@ -74,7 +81,6 @@ public class TestRun implements Runnable {
 
     /**
      * @param params the run's own parameters; its user count selects the users from the start of {@code allCredentials}
-     * @param onDone
      * @throws IllegalArgumentException if either count is out of range
      */
     public static TestRun create(HttpClient httpClient, String wsgwServer, URI appServiceUrl, PerRunParams params,
@@ -142,8 +148,11 @@ public class TestRun implements Runnable {
     }
 
 
-    public void stop() {
+    public void stop() throws InterruptedException {
         testRunThread.interrupt();
+        if (!testRunThread.join(STOP_JOIN_TIMEOUT)) {
+            iLogger.warn("Thread.join() timed out");
+        }
     }
 
     /**
@@ -160,7 +169,7 @@ public class TestRun implements Runnable {
                         receivers.put(user.username(), receiver);
                         return null;
                     } catch (Exception e) {
-                        logger.with("user", user.username()).with("testRunId", testRunId).error("Failed to connect", e);
+                        iLogger.with(LogKeys.USER, user.username()).error("Failed to connect", e);
                         throw e;
                     }
                 }));
@@ -186,7 +195,7 @@ public class TestRun implements Runnable {
                 try {
                     receiver.closeSession();
                 } catch (Exception e) {
-                    logger.with("user", username).warn("Failed to close the session cleanly", e);
+                    iLogger.with(LogKeys.USER, username).warn("Failed to close the session cleanly", e);
                 }
             }));
         }
@@ -213,34 +222,66 @@ public class TestRun implements Runnable {
                 .toList();
 
         AtomicReference<Exception> error = new AtomicReference<>();
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
             var completionService = new ExecutorCompletionService<Void>(executor);
             for (int index = 0; index < chunks.size() && error.get() == null; index++) {
                 List<E2EMessage> chunkToSend = chunks.get(index);
                 completionService.submit(() -> {
+                    boolean firstError = false;
+                    if (error.get() != null) {
+                        return null;
+                    }
                     try {
+                        // TODO: workload tuning based on backpressure should be put to work here
                         sendMessagesChunk(chunkToSend);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     } catch (Exception e) {
-                        error.compareAndSet(null, e);
+                        firstError = error.compareAndSet(null, e);
                         throw new RuntimeException(e);
+                    } finally {
+                        if (firstError) {
+                            executor.shutdownNow();
+                        }
                     }
                     return null;
                 });
             }
-            for (var index = 0; index < chunks.size() && error.get() == null; index++) {
-                var future = completionService.take();
-                future.get();
-            }
+            awaitAllOrCancel(completionService, executor, chunks.size(), error);
             if (error.get() != null) {
                 iLogger.error("Failed to send messages (first error recorded)", error.get());
                 throw new RuntimeException(error.get());
             }
+        } catch (RejectedExecutionException e) {
+            iLogger.error("Execution of message submission has been rejected", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             iLogger.error("Interrupted while sending messages");
         } catch (ExecutionException e) {
             iLogger.error("Error while sending messages", e);
             throw new RuntimeException(e);
+        } finally {
+            executor.close();
+        }
+    }
+
+    /**
+     * Waits for {@code taskCount} tasks of {@code completionService} to finish, stopping early once
+     * {@code error} is set. If the calling thread is interrupted meanwhile, cancels the tasks still
+     * running on {@code executor} and rethrows: interrupting the calling thread doesn't reach the
+     * tasks' threads by itself.
+     */
+    private static void awaitAllOrCancel(CompletionService<Void> completionService, ExecutorService executor,
+                                         int taskCount, AtomicReference<Exception> error)
+            throws InterruptedException, ExecutionException {
+        try {
+            for (var index = 0; index < taskCount && error.get() == null; index++) {
+                completionService.take().get();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            throw e;
         }
     }
 
@@ -252,12 +293,17 @@ public class TestRun implements Runnable {
             var authnHeader = "Basic " + Base64.getEncoder().encodeToString(
                             "%s:%s".formatted(senderCredentials.username(), senderCredentials.password())
                             .getBytes(StandardCharsets.UTF_8));
-            var request = HttpRequest.newBuilder(appServiceUrl)
+            var request = HttpRequest.newBuilder(appServiceUrl.resolve(E2eAppPaths.BULK_SEND_MESSAGES))
                     .method("POST", HttpRequest.BodyPublishers.ofString(messagesToSend))
                     .header("Authorization", authnHeader)
                     .header("Content-Type", "application/json")
+                    .timeout(SEND_MESSAGE_CHUNK_TIMEOUT)
                     .build();
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            var reply = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (reply.statusCode() != HttpServletResponse.SC_NO_CONTENT) {
+                mLogger.error("Failed to send messages: {}", reply.statusCode());
+                throw new RuntimeException("Failed to send messages");
+            }
         } catch (JsonProcessingException e) {
             mLogger.error("Failed to write messages to JSON", e);
             throw new RuntimeException(e);
@@ -265,7 +311,6 @@ public class TestRun implements Runnable {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            mLogger.error("Interrupted while sending messages", e);
             throw e;
         }
     }

@@ -48,15 +48,17 @@ public class TestRunner {
         return testRun.getTestRunId();
     }
 
-    public synchronized void stopTestRun(String testRunId) {
-        if (testRun == null) {
-            throw new IllegalStateException("No test is in progress");
+    public void stopTestRun(boolean expectRunning) throws InterruptedException {
+        TestRun toStop;
+        synchronized (this) {
+            if (testRun == null) {
+                if (expectRunning) {
+                    throw new IllegalStateException("No test is in progress");
+                }
+                return;
+            }
+            toStop = testRun;
         }
-
-        if (!testRun.getTestRunId().equals(testRunId)) {
-            throw new IllegalArgumentException("Test is in progress, but test run id does not match test run id");
-        }
-
-        testRun.stop();
+        toStop.stop();
     }
 }

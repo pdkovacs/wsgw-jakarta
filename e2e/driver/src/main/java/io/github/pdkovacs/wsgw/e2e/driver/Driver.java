@@ -2,7 +2,6 @@ package io.github.pdkovacs.wsgw.e2e.driver;
 
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthHttpFilter;
 import io.github.pdkovacs.wsgw.e2e.common.auth.BasicAuthenticator;
-import io.github.pdkovacs.wsgw.e2e.driver.service.TestRun;
 import io.github.pdkovacs.wsgw.e2e.driver.service.TestRunner;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 import io.github.pdkovacs.wsgw.version.VersionServlet;
@@ -14,18 +13,17 @@ import org.apache.coyote.http2.Http2Protocol;
 
 import java.net.http.HttpClient;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.pdkovacs.wsgw.web.TomcatFilters.addFilter;
 
 public class Driver {
     private static final CtxLogger logger = CtxLogger.of(Driver.class);
 
-    private final ConcurrentHashMap<String, TestRun> testRuns = new ConcurrentHashMap<>();
     private final Config driverConfig;
     private final HttpClient httpClient;
 
     private Tomcat tomcat;
+    private TestRunner testRunner;
 
     Driver(Config driverConfig, MeterRegistry meterRegistry) {
         this.driverConfig = driverConfig;
@@ -61,7 +59,7 @@ public class Driver {
         ctx.addServletMappingDecoded("/", "default");
 
         Tomcat.addServlet(ctx, "get-version", new VersionServlet(Driver.class)).addMapping(VersionServlet.PATH);
-        var testRunner = new TestRunner(
+        testRunner = new TestRunner(
                 httpClient,
                 driverConfig.getWsgwServer(),
                 driverConfig.getAppServiceUrl(),
@@ -85,12 +83,15 @@ public class Driver {
 
     void stop() {
         try {
+            testRunner.stopTestRun(false);
             logger.info("Stopping Tomcat...");
             tomcat.stop();
             logger.info("Tomcat stopped");
             tomcat.destroy();
         } catch (LifecycleException e) {
             throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            logger.info("Interrupted while waiting for Tomcat to stop");
         }
     }
 }
