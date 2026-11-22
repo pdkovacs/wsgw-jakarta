@@ -44,7 +44,7 @@ public class Endpoint extends jakarta.websocket.Endpoint {
 
         Relay relay = appwardRelays.createRelay(connectHeaders, connectionId);
 
-        session.addMessageHandler(String.class, msg -> relay.sendMessage(msg));
+        session.addMessageHandler(String.class, relay::sendMessage);
         log.debug("onOpen completed");
     }
 

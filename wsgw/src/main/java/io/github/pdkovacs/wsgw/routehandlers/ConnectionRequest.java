@@ -169,7 +169,7 @@ public class ConnectionRequest extends HttpFilter {
     // and returns the HTTP status the backend answered with. 204 means accepted.
     // The response body is discarded -- only the status code matters here.
     private int registerWithApp(Map<String, List<String>> reqHeaders, String connectionId) throws Exception {
-        var log = ConnectionRequest.logger.with("connId", connectionId).with("appwardRquest", appwardRequest);
+        var log = logger.with("connId", connectionId).with("appwardRequest", appwardRequest);
         log.debug("About to register with app");
         HttpResponse<Void> response = appwardRequest.send(reqHeaders,
                 AppPaths.CONNECT_FROM_WSGW + "/" + connectionId,
@@ -178,10 +178,10 @@ public class ConnectionRequest extends HttpFilter {
         return response.statusCode();
     }
 
-    // The ADMISSION_QUANTILE connect latency in seconds, or 0 when the timer holds no samples
-    // yet -- or when the quantile is not among those the timer was built to track, which would
-    // be a wiring error rather than a runtime condition. Both read as "no evidence", which is
-    // what jitteredAdmissionHoldDown falls back to defaultAdmissionHoldDown on.
+    // The ADMISSION_QUANTILE connect latency in seconds, or 0 when the timer holds no samples yet.
+    // 0 also means the quantile is not among those the timer was built to track. That would be
+    // a wiring error, not a runtime condition. Both read as "no evidence", which is what
+    // jitteredAdmissionHoldDown falls back to defaultAdmissionHoldDown on.
     private double connectLatencyTailSeconds() {
         for (var valueAtPercentile : meters.connectLatency().takeSnapshot().percentileValues()) {
             if (valueAtPercentile.percentile() == ADMISSION_QUANTILE) {
