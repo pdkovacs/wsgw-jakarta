@@ -21,6 +21,7 @@ public class Driver {
 
     private final Config driverConfig;
     private final HttpClient httpClient;
+    private final MeterRegistry meterRegistry;
 
     private Tomcat tomcat;
     private TestRunner testRunner;
@@ -28,6 +29,7 @@ public class Driver {
     Driver(Config driverConfig, MeterRegistry meterRegistry) {
         this.driverConfig = driverConfig;
         this.httpClient = HttpClient.newBuilder().build();
+        this.meterRegistry = meterRegistry;
     }
 
     int start() throws LifecycleException {
@@ -65,7 +67,7 @@ public class Driver {
                 driverConfig.getAppServiceUrl(),
                 driverConfig.getPasswordCredentials(),
                 driverConfig.getSenderCredentials(),
-                Monitoring.noop());
+                Monitoring.micrometer(meterRegistry));
         Tomcat.addServlet(ctx, "run", new RunnerServlet(testRunner))
                 .addMapping(RunnerServlet.PATH);
         Tomcat.addServlet(ctx, "stop", new StopperServlet(testRunner))

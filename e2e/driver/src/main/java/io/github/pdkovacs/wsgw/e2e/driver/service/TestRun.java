@@ -333,13 +333,13 @@ public class TestRun implements Runnable {
 
     private Message createMessage(List<String> recipientCandidates) {
         List<String> recipients = selectRecipients(recipientCandidates, ThreadLocalRandom.current());
-        monitoring.incMsgRecipientToReachCounter().accept(recipients.size());
+        monitoring.incMsgRecipientToReachCounter().accept(recipients.size(), testRunId);
 
         var msgId = UUID.randomUUID().toString();
         var text = "[%s] %s".formatted(msgId, "a test message");
         var msg = new Message(testRunId, msgId, text, recipients);
 
-        monitoring.incMsgCreatedCounter().run();
+        monitoring.incMsgCreatedCounter().accept(testRunId);
 
         return msg;
     }

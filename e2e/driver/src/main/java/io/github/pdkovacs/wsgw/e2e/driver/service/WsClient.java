@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.concurrent.*;
 
 import io.github.pdkovacs.wsgw.WsgwPaths;
+import io.github.pdkovacs.wsgw.e2e.common.E2eHeaders;
 import io.github.pdkovacs.wsgw.e2e.common.LogKeys;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
 
@@ -40,6 +41,7 @@ public class WsClient {
         var authHeaderValue = "Basic " + Base64.getEncoder().encodeToString(userAndPassword.getBytes(StandardCharsets.UTF_8));
         return httpClient.newWebSocketBuilder()
                 .header("Authorization", authHeaderValue)
+                .header(E2eHeaders.RUN_ID, runId)
                 .connectTimeout(connectTimeout)
                 .buildAsync(URI.create("ws://%s%s".formatted(wsgwServer, WsgwPaths.CONNECT_FROM_CLIENT)), new WebSocket.Listener() {
                     @Override

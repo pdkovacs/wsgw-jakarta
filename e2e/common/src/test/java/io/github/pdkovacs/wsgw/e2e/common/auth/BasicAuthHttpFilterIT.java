@@ -74,7 +74,7 @@ class BasicAuthHttpFilterIT {
         Wrapper w = Tomcat.addServlet(ctx, name, new HttpServlet() {
             @Override
             protected void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
-                res.getWriter().print(BasicAuthHttpFilter.userId(req).orElse("anonymous"));
+                res.getWriter().print(req.getRemoteUser() == null ? "anonymous" : req.getRemoteUser());
             }
         });
         w.addMapping(pattern);

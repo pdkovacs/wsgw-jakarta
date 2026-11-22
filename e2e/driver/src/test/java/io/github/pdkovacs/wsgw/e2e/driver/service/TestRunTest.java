@@ -63,13 +63,9 @@ class TestRunTest {
     void countsCreatedMessagesAndTheirRecipients() {
         var messagesCreated = new AtomicInteger();
         var recipientsToReach = new AtomicInteger();
-        var monitoring = new Monitoring(recipientsToReach::addAndGet, messagesCreated::incrementAndGet,
-                () -> {
-                }, () -> {
-        }, () -> {
-        }, duration -> {
-        }, duration -> {
-        });
+        var monitoring = new Monitoring((count, runId) -> recipientsToReach.addAndGet(count),
+                runId -> messagesCreated.incrementAndGet(), runId -> {}, runId -> {}, runId -> {},
+                (duration, runId) -> {}, (duration, runId) -> {});
 
         testRun(5, 4, 3, monitoring).createMessages();
 
@@ -158,14 +154,8 @@ class TestRunTest {
     }
 
     private static Monitoring countingCreatedMessages(AtomicInteger messagesCreated) {
-        return new Monitoring(count -> {
-        }, messagesCreated::incrementAndGet,
-                () -> {
-                }, () -> {
-        }, () -> {
-        }, duration -> {
-        }, duration -> {
-        });
+        return new Monitoring((count, runId) -> {}, runId -> messagesCreated.incrementAndGet(),
+                runId -> {}, runId -> {}, runId -> {}, (duration, runId) -> {}, (duration, runId) -> {});
     }
 
     private static String authorization(String username) {

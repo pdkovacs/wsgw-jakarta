@@ -1,6 +1,7 @@
 package io.github.pdkovacs.wsgw.e2e.app;
 
 import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnectionsFactory;
+import io.github.pdkovacs.wsgw.e2e.app.routehandlers.BulkMessagesServlet;
 import io.github.pdkovacs.wsgw.e2e.app.service.MessageSender;
 import io.github.pdkovacs.wsgw.e2e.app.service.WsgwClient;
 import io.github.pdkovacs.wsgw.e2e.common.E2eAppPaths;
@@ -29,12 +30,14 @@ public class App {
 
     private final Config config;
     private final HttpClient httpClient;
+    private final MeterRegistry meterRegistry;
 
     private Tomcat tomcat;
     private MessageSender messageSender;
 
     public App(Config config, MeterRegistry meterRegistry) {
         this.config = config;
+        this.meterRegistry = meterRegistry;
         // Iter 2: flip to HTTP_2 when h2c parity is wired up.
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -73,7 +76,8 @@ public class App {
 
         messageSender = new MessageSender(
                 WsConnectionsFactory.wsConnections(config),
-                new WsgwClient(httpClient, config.getWsgwServer()));
+                new WsgwClient(httpClient, config.getWsgwServer()),
+                MessageSender.Monitoring.micrometer(meterRegistry));
         Tomcat.addServlet(ctx, "messages-in-bulk", new BulkMessagesServlet(messageSender))
                 .addMapping(E2eAppPaths.BULK_SEND_MESSAGES);
 

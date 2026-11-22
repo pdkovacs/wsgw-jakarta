@@ -85,7 +85,7 @@ public class Receiver implements Runnable {
             var msgInRepo = outstandingMessages.getMessage(msgFromApp.id());
             if (msgInRepo == null) {
                 mLogger.error("incoming message not found amongst outstanding");
-                monitoring.incOutstandingMsgNotFoundCount().run();
+                monitoring.incOutstandingMsgNotFoundCount().accept(runId);
                 return;
             }
 
@@ -93,7 +93,7 @@ public class Receiver implements Runnable {
             var deliveryDuration = Duration.between(sentAt, receivedAt);
 
             if (!msgFromApp.data().equals(msgInRepo.getText())) {
-                monitoring.incMsgTextMismatchCounter().run();
+                monitoring.incMsgTextMismatchCounter().accept(runId);
             }
 
             if (deliveryDuration.toMillis() > 400) {
@@ -102,7 +102,7 @@ public class Receiver implements Runnable {
 
             outstandingMessages.markDelivered(msgFromApp.id(), credentials.username());
 
-            monitoring.recordDeliveryDurationMs().accept(deliveryDuration);
+            monitoring.recordDeliveryDurationMs().accept(deliveryDuration, runId);
         } catch (JsonProcessingException e) {
             mLogger.error("Error parsing message", e);
         }

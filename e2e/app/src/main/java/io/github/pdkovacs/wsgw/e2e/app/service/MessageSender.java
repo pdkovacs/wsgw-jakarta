@@ -3,10 +3,13 @@ package io.github.pdkovacs.wsgw.e2e.app.service;
 import io.github.pdkovacs.wsgw.e2e.app.conntrack.WsConnections;
 import io.github.pdkovacs.wsgw.e2e.common.dto.E2EMessage;
 import io.github.pdkovacs.wsgw.logging.CtxLogger;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,9 +30,27 @@ public class MessageSender implements AutoCloseable {
     private final WsgwClient wsgwClient;
     private final ExecutorService fanOut = Executors.newFixedThreadPool(MAX_CONCURRENT_RECIPIENT_SENDS);
 
-    public MessageSender(WsConnections wsConnections, WsgwClient wsgwClient) {
+    public interface Monitoring {
+         void incStaleWsConnIdCounter(String runId);
+
+        /**
+         * Meter name and description are the Go app's; the unit and the run-id tag are as in
+         * {@link io.github.pdkovacs.wsgw.e2e.app.routehandlers.Monitoring}.
+         */
+        static Monitoring micrometer(MeterRegistry registry) {
+            var staleConnectionIds = Counter.builder("stale.wsconnid.counter")
+                    .description("Number of stale WebSocket connection-ids encountered")
+                    .baseUnit("{call}")
+                    .withRegistry(registry);
+            return runId -> staleConnectionIds.withTag("runId", Objects.requireNonNullElse(runId, "unknown")).increment();
+        }
+    }
+    private final Monitoring monitoring;
+
+    public MessageSender(WsConnections wsConnections, WsgwClient wsgwClient, Monitoring monitoring) {
         this.wsConnections = wsConnections;
         this.wsgwClient = wsgwClient;
+        this.monitoring = monitoring;
     }
 
     public void sendAll(List<E2EMessage> messages) {
@@ -59,6 +80,7 @@ public class MessageSender implements AutoCloseable {
                 int status = wsgwClient.sendToConnection(connectionId, message);
                 // The gateway no longer knows the connection: stop tracking it
                 if (status == HttpURLConnection.HTTP_NOT_FOUND || status == HttpURLConnection.HTTP_GONE) {
+                    monitoring.incStaleWsConnIdCounter(message.runId());
                     wsConnections.removeConnection(userId, connectionId);
                 }
             } catch (InterruptedException e) {

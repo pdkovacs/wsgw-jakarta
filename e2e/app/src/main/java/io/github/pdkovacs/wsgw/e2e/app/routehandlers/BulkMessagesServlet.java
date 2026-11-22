@@ -1,4 +1,4 @@
-package io.github.pdkovacs.wsgw.e2e.app;
+package io.github.pdkovacs.wsgw.e2e.app.routehandlers;
 
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.type.TypeReference;
